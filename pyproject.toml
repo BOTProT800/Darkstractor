@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "darkstractor"
+version = "0.4.0"
+description = "Extractor gráfico en Python para Darksiders II Deathinitive Edition"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+darkstractor = "darkstractor.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["darkstractor*"]

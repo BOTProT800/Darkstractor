@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.partial
+extraccion/
+test_output/
+build/
+dist/
+*.egg-info/
+tests/.tmp/*
+!tests/.tmp/.gitkeep
