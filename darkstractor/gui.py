@@ -153,8 +153,10 @@ class DarkstractorApp(tk.Tk):
         self.entry_tree.column("#0", width=470)
         scrollbar = ttk.Scrollbar(entry_frame, orient="vertical", command=self.entry_tree.yview)
         self.entry_tree.configure(yscrollcommand=scrollbar.set)
-        self.entry_tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        entry_frame.columnconfigure(0, weight=1)
+        entry_frame.rowconfigure(0, weight=1)
+        self.entry_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
         self.entry_tree.bind("<Double-1>", lambda _event: self.explore_selected())
 
         options = ttk.Frame(self, padding=(22, 12, 22, 8))
@@ -477,7 +479,7 @@ class DarkstractorApp(tk.Tk):
             f"Se instalará como:\n{target}\n\n"
             f"Textura: {manifest.texture_name}\n"
             f"SHA-256 del mod: {manifest.patched_sha256[:16]}…\n\n"
-            f"El estado actual se respaldará en:\n{default_backup_root()}\n\n"
+            f"El estado actual se respaldará en:\n{default_backup_root(game)}\n\n"
             "Cierra el juego antes de continuar. ¿Instalar?",
         ):
             return

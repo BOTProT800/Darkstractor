@@ -69,7 +69,18 @@ def validate_replacement(original_header: bytes, original_size: int, replacement
         raise FormatError(
             f"El DDS de reemplazo mide {replacement_size} bytes; debe medir exactamente {original_size}"
         )
-    if candidate != original:
+    # En una textura 2D el campo dwDepth se ignora. Algunos exportadores escriben
+    # 1 y otros 0; ambas representaciones significan una sola capa. Los valores
+    # mayores siguen comparándose estrictamente porque corresponden a volúmenes.
+    equivalent_2d_depth = original.depth in (0, 1) and candidate.depth in (0, 1)
+    if candidate != original and not (
+        equivalent_2d_depth
+        and all(
+            getattr(original, field) == getattr(candidate, field)
+            for field in DdsInfo.__dataclass_fields__
+            if field != "depth"
+        )
+    ):
         differences: list[str] = []
         for field in DdsInfo.__dataclass_fields__:
             before = getattr(original, field)

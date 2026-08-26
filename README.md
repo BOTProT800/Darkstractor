@@ -60,7 +60,7 @@ Darkstractor valida la cabecera DDS, reconstruye el zlib, comprueba que el OBP s
 1. Cierra `Darksiders2.exe`.
 2. Pulsa **Instalar UPAK verificado…** y selecciona el `*_mod.upak` generado.
 3. Darkstractor comprueba que el mod no fue alterado y que el UPAK instalado es exactamente la versión usada para crearlo.
-4. Antes de reemplazarlo, guarda y verifica una copia del estado previo en `%LOCALAPPDATA%\Darkstractor\backups`.
+4. Antes de reemplazarlo, guarda y verifica una copia del estado previo en `media\backups`, dentro de la instalación del juego.
 5. Para desinstalarlo, pulsa **Restaurar respaldo**. También se verifican el archivo instalado y la copia antes de restaurar.
 
 La escritura se hace primero en un archivo temporal dentro de la carpeta del juego y solo entonces se sustituye el UPAK. Si Windows deniega el acceso a `Program Files (x86)`, cierra Steam y abre Darkstractor como administrador. Los respaldos se conservan después de restaurar para recuperación manual.
@@ -124,7 +124,7 @@ python -m darkstractor mods
 python -m darkstractor restore-upak --archive media.upak
 ```
 
-Se puede añadir `--backup-dir D:\Respaldos\Darkstractor` a estos comandos para elegir otro disco. La GUI utiliza la carpeta segura predeterminada de `%LOCALAPPDATA%`.
+Se puede añadir `--backup-dir D:\Respaldos\Darkstractor` a estos comandos para elegir otro disco. De forma predeterminada, la GUI y la línea de comandos utilizan `media\backups` dentro de la instalación del juego.
 
 Usa `--raw` para conservar los segmentos UPAK como `.obp` y `--overwrite` para sobrescribir archivos existentes. De forma predeterminada, los duplicados reciben un sufijo numérico.
 

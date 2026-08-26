@@ -208,11 +208,9 @@ def _ensure_game_closed() -> None:
         raise DarkstractorError("Darksiders2.exe está abierto. Cierra el juego antes de instalar o restaurar archivos.")
 
 
-def default_backup_root() -> Path:
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        return Path(local) / "Darkstractor" / "backups"
-    return Path.home() / ".darkstractor" / "backups"
+def default_backup_root(game_root: Path) -> Path:
+    """Return the backup store that belongs to this game installation."""
+    return game_root.expanduser().resolve() / "media" / "backups"
 
 
 def _game_id(game_root: Path) -> str:
@@ -220,9 +218,14 @@ def _game_id(game_root: Path) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
+def _game_backup_root(game_root: Path, backup_root: Path | None) -> Path:
+    if backup_root is None:
+        return default_backup_root(game_root)
+    return backup_root.expanduser().resolve() / _game_id(game_root)
+
+
 def _archive_directory(game_root: Path, target_name: str, backup_root: Path | None) -> Path:
-    root = (backup_root or default_backup_root()).resolve()
-    return root / _game_id(game_root) / target_name.casefold()
+    return _game_backup_root(game_root, backup_root) / target_name.casefold()
 
 
 def _state_path(game_root: Path, target_name: str, backup_root: Path | None) -> Path:
@@ -305,7 +308,7 @@ def _target_for(game_root: Path, target_name: str) -> Path:
 
 def active_installations(game_root: Path, *, backup_root: Path | None = None) -> list[InstallState]:
     root = _validate_game_root(game_root)
-    game_backups = (backup_root or default_backup_root()).resolve() / _game_id(root)
+    game_backups = _game_backup_root(root, backup_root)
     if not game_backups.is_dir():
         return []
     states: list[InstallState] = []

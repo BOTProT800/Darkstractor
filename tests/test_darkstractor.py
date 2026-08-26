@@ -124,6 +124,18 @@ class DdsTests(unittest.TestCase):
         finally:
             replacement.unlink(missing_ok=True)
 
+    def test_accepts_equivalent_depth_one_for_2d_texture(self) -> None:
+        original = make_dds()
+        changed = bytearray(original)
+        struct.pack_into("<I", changed, 24, 1)
+        replacement = SCRATCH / "depth_one.dds"
+        try:
+            replacement.write_bytes(changed)
+            result = validate_replacement(original[:148], len(original), replacement)
+            self.assertEqual(result.depth, 1)
+        finally:
+            replacement.unlink(missing_ok=True)
+
 
 class AkpkTests(unittest.TestCase):
     def test_parses_little_endian_sound_table(self) -> None:
@@ -249,6 +261,23 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual((self.media / "media.upak").read_bytes(), original)
         self.assertEqual(restored.installed_sha256, result.previous_sha256)
         self.assertEqual(active_installations(self.root, backup_root=self.backups), [])
+
+    @patch("darkstractor.installation.is_game_running", return_value=False)
+    def test_uses_game_media_backup_directory_by_default(self, _running) -> None:
+        patched, original, modified = self._make_mod()
+        result = install_mod(self.root, patched)
+
+        expected_archive = (self.media / "backups" / "media.upak").resolve()
+        self.assertEqual(result.backup.parent, expected_archive)
+        self.assertEqual((self.media / "media.upak").read_bytes(), modified)
+        self.assertEqual(result.backup.read_bytes(), original)
+        self.assertEqual(
+            [state.target_name for state in active_installations(self.root)],
+            ["media.upak"],
+        )
+
+        restore_backup(self.root, "media.upak")
+        self.assertEqual((self.media / "media.upak").read_bytes(), original)
 
     @patch("darkstractor.installation.is_game_running", return_value=False)
     def test_rejects_tampered_mod(self, _running) -> None:
