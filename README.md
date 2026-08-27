@@ -1,105 +1,123 @@
 # Darkstractor
 
-Herramienta gráfica y escrita en Python para explorar, extraer y administrar modificaciones de **Darksiders II Deathinitive Edition** en Windows.
+A graphical Python tool for exploring, extracting and managing modifications for
+**Darksiders II Deathinitive Edition** on Windows.
 
-La extracción y el repaquetado se realizan en carpetas independientes. La instalación de un mod solo ocurre después de una confirmación explícita, con el juego cerrado, un respaldo automático y comprobaciones SHA-256.
+Extraction and repacking happen in separate folders. Installing a mod only happens after an
+explicit confirmation, with the game closed, an automatic backup and SHA-256 checks.
 
-## Funciones
+## Features
 
-- Lee `manifest.bin` y maneja los offsets de 64 bits de Deathinitive.
-- Indexa `media.upak` y `maps.upak` conservando nombres y carpetas.
-- Lee la tabla interna de los OBP Deathinitive y separa sus recursos con nombres y tipos.
-- Extrae directamente DDS, O3D, modelos `.2`, BMAT, ANM, BNK, SMF, LOC, fuentes y formatos auxiliares.
-- Descomprime automáticamente los recursos `.zgfx` de Scaleform a `.gfx`.
-- Cuando una variante no tiene tabla utilizable, recupera el `.bod` completo mediante zlib.
-- Recupera los streams zlib de `anim_streams.upak` sin depender de Offzip.
-- Extrae los paquetes Wwise AKPK (`core.pck`, `en.pck`, `es.pck`) a `.wem`, conservando sus IDs e idioma.
-- Copia los vídeos `.bik`, subtítulos y archivos auxiliares.
-- Incluye búsqueda, selección múltiple, cancelación y políticas seguras para archivos duplicados.
-- Reemplaza DDS compatibles y genera una copia UPAK completa, verificada y con los mismos offsets.
-- Genera un manifiesto de seguridad que vincula cada mod con la versión exacta del UPAK fuente.
-- Instala y desinstala UPAK con respaldo automático, escritura transaccional y verificación SHA-256.
-- No necesita QuickBMS, Offzip ni paquetes de Python externos.
+- Reads `manifest.bin` and handles Deathinitive's 64-bit offsets.
+- Indexes `media.upak` and `maps.upak`, preserving names and folders.
+- Reads the internal table of Deathinitive OBP files and splits their resources out with names
+  and types.
+- Extracts DDS, O3D, `.2` models, BMAT, ANM, BNK, SMF, LOC, fonts and auxiliary formats directly.
+- Automatically decompresses Scaleform `.zgfx` resources to `.gfx`.
+- When a variant has no usable table, recovers the whole `.bod` through zlib.
+- Recovers the zlib streams of `anim_streams.upak` without depending on offzip.
+- Extracts Wwise AKPK packages (`core.pck`, `en.pck`, `es.pck`) to `.wem`, preserving their IDs
+  and language.
+- Copies `.bik` videos, subtitles and auxiliary files.
+- Includes search, multiple selection, cancellation and safe policies for duplicate files.
+- Replaces compatible DDS files and generates a complete UPAK copy, verified and with identical
+  offsets.
+- Generates a safety manifest linking every mod to the exact version of the source UPAK.
+- Installs and uninstalls UPAK files with automatic backup, transactional writes and SHA-256
+  verification.
+- Requires no QuickBMS, no offzip and no external Python packages.
 
-## Inicio rápido
+## Quick start
 
-Requiere Python 3.10 o posterior. En esta carpeta ejecuta:
+Requires Python 3.10 or later. In this folder run:
 
 ```powershell
 python run_darkstractor.py
 ```
 
-En Windows también puedes abrir `Darkstractor.pyw` con doble clic para iniciar sin una consola adicional.
+On Windows you can also double-click `Darkstractor.pyw` to start without an extra console.
 
-La ruta predeterminada ya apunta a:
+The default path already points to:
 
 ```text
 C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition
 ```
 
-1. Pulsa **Analizar**.
-2. Elige un contenedor a la izquierda.
-3. Filtra o selecciona recursos en la lista derecha.
-4. Pulsa **Abrir paquete** —o haz doble clic— para ver y seleccionar sus DDS, modelos, materiales y demás archivos internos.
-5. Elige la carpeta de salida y pulsa **Extraer selección**.
+1. Press **Analizar**.
+2. Pick a container on the left.
+3. Filter or select resources in the list on the right.
+4. Press **Abrir paquete** — or double-click — to view and select its DDS files, models,
+   materials and other internal files.
+5. Choose the output folder and press **Extraer selección**.
 
-La opción **Separar recursos internos** extrae cada miembro con su nombre. Si se desactiva, conserva los segmentos secundarios como `.obp`.
+The **Separar recursos internos** option extracts each member under its own name. Turning it off
+keeps the secondary segments as `.obp`.
 
-## Reemplazar una textura DDS
+## Replacing a DDS texture
 
-1. Abre el paquete OBP que contiene la textura y extráela.
-2. Edita el DDS conservando dimensiones, formato de compresión, mipmaps y tamaño exacto del archivo.
-3. Regresa al paquete abierto, selecciona la textura y pulsa **Reemplazar DDS…**.
-4. Elige el DDS editado y una ubicación para la nueva copia `*_mod.upak`.
-5. Al terminar, acepta **Instalar ahora** o utiliza **Instalar UPAK verificado…** más tarde.
+1. Open the OBP package containing the texture and extract it.
+2. Edit the DDS preserving its dimensions, compression format, mipmaps and exact file size.
+3. Go back to the open package, select the texture and press **Reemplazar DDS…**.
+4. Choose the edited DDS and a location for the new `*_mod.upak` copy.
+5. When it finishes, accept **Instalar ahora** or use **Instalar UPAK verificado…** later.
 
-Darkstractor valida la cabecera DDS, reconstruye el zlib, comprueba que el OBP siga cabiendo en su espacio original y vuelve a leer la textura desde el UPAK generado. Junto al UPAK crea `*.upak.darkstractor.json`, que contiene los hashes del origen y del resultado. Ambos archivos deben permanecer juntos para instalarlo.
+Darkstractor validates the DDS header, rebuilds the zlib stream, checks that the OBP still fits
+in its original space, and reads the texture back from the generated UPAK. Next to the UPAK it
+creates `*.upak.darkstractor.json`, holding the hashes of both the source and the result. Both
+files must stay together for it to be installable.
 
-## Instalar y desinstalar con seguridad
+## Installing and uninstalling safely
 
-1. Cierra `Darksiders2.exe`.
-2. Pulsa **Instalar UPAK verificado…** y selecciona el `*_mod.upak` generado.
-3. Darkstractor comprueba que el mod no fue alterado y que el UPAK instalado es exactamente la versión usada para crearlo.
-4. Antes de reemplazarlo, guarda y verifica una copia del estado previo en `media\backups`, dentro de la instalación del juego.
-5. Para desinstalarlo, pulsa **Restaurar respaldo**. También se verifican el archivo instalado y la copia antes de restaurar.
+1. Close `Darksiders2.exe`.
+2. Press **Instalar UPAK verificado…** and select the `*_mod.upak` you generated.
+3. Darkstractor checks that the mod has not been altered and that the installed UPAK is exactly
+   the version used to create it.
+4. Before replacing it, a copy of the previous state is saved and verified in `media\backups`,
+   inside the game installation.
+5. To uninstall it, press **Restaurar respaldo**. Both the installed file and the backup are
+   verified before restoring, too.
 
-La escritura se hace primero en un archivo temporal dentro de la carpeta del juego y solo entonces se sustituye el UPAK. Si Windows deniega el acceso a `Program Files (x86)`, cierra Steam y abre Darkstractor como administrador. Los respaldos se conservan después de restaurar para recuperación manual.
+The write goes to a temporary file inside the game folder first, and only then replaces the
+UPAK. If Windows denies access to `Program Files (x86)`, close Steam and run Darkstractor as
+administrator. Backups are kept after restoring, for manual recovery.
 
-Si Steam actualiza o modifica el UPAK, Darkstractor se niega a instalar una versión incompatible. Si otro programa cambia un mod activo, la restauración normal también se detiene para no borrar esos cambios; la línea de comandos ofrece `--force` únicamente para una recuperación deliberada.
+If Steam updates or modifies the UPAK, Darkstractor refuses to install an incompatible version.
+If another program changes an active mod, the normal restore also stops rather than erasing
+those changes; the command line offers `--force` solely for deliberate recovery.
 
-## Línea de comandos
+## Command line
 
-Inventario:
+Inventory:
 
 ```powershell
 python -m darkstractor scan
 ```
 
-Extraer una pista concreta:
+Extract one specific track:
 
 ```powershell
-python -m darkstractor extract --output .\extraccion --archive core.pck --filter 454907743.wem
+python -m darkstractor extract --output .\extraction --archive core.pck --filter 454907743.wem
 ```
 
-Extraer recursos cuyo nombre contiene `death`:
+Extract resources whose name contains `death`:
 
 ```powershell
-python -m darkstractor extract --output .\extraccion --archive media.upak --filter death
+python -m darkstractor extract --output .\extraction --archive media.upak --filter death
 ```
 
-Examinar el contenido de un paquete sin extraerlo:
+Inspect the contents of a package without extracting it:
 
 ```powershell
 python -m darkstractor members --archive media.upak --filter ui_buttons_pc
 ```
 
-Extraer únicamente un recurso interno concreto:
+Extract only one specific internal resource:
 
 ```powershell
 python -m darkstractor extract --output .\extraccion --archive media.upak --filter ui_buttons_pc --inner-filter button_caps.dds
 ```
 
-Crear un UPAK modificado desde la línea de comandos:
+Build a modified UPAK from the command line:
 
 ```powershell
 python -m darkstractor replace-dds `
@@ -110,45 +128,89 @@ python -m darkstractor replace-dds `
   --output .\mods\media_mod.upak
 ```
 
-Instalarlo con respaldo y hashes:
+Install it with backup and hashes:
 
 ```powershell
 python -m darkstractor install-upak `
   --input .\mods\media_mod.upak
 ```
 
-Consultar modificaciones activas y restaurar el estado anterior:
+List active modifications and restore the previous state:
 
 ```powershell
 python -m darkstractor mods
 python -m darkstractor restore-upak --archive media.upak
 ```
 
-Se puede añadir `--backup-dir D:\Respaldos\Darkstractor` a estos comandos para elegir otro disco. De forma predeterminada, la GUI y la línea de comandos utilizan `media\backups` dentro de la instalación del juego.
+You can add `--backup-dir C:\Backups\Darkstractor` to these commands to pick another drive. By
+default both the GUI and the command line use `media\backups` inside the game installation.
 
-Usa `--raw` para conservar los segmentos UPAK como `.obp` y `--overwrite` para sobrescribir archivos existentes. De forma predeterminada, los duplicados reciben un sufijo numérico.
+Use `--raw` to keep UPAK segments as `.obp`, and `--overwrite` to overwrite existing files. By
+default, duplicates get a numeric suffix.
 
-## Qué produce cada contenedor
+## What each container produces
 
-- `media.upak`, `maps.upak` → recursos internos nombrados; `.bod` completo si la variante carece de tabla, o `.obp` sin procesar.
-- Tipo 1 → `.o3d`; tipo 2 → modelo nativo `.2`; tipo 5 → `.bmat`; tipo 6 → `.dds`.
-- Tipo 8 → `.anm`; tipo 9 → `.bnk`; tipo 12 → `.gfx`; tipos 11/15/20 → `.smf`, `.sam` y `.loc`.
-- `anim_streams.upak` → streams zlib numerados; se conserva la extensión identificable por su cabecera.
-- `*.pck` → `.wem` y, si existen en la tabla, `.bnk`.
-- `video` → copias exactas `.bik` y `.sub`.
-- `otros` → copias exactas de `scripts.obsp` y los `.bin` de mundos.
+- `media.upak`, `maps.upak` → named internal resources; the whole `.bod` when the variant has no
+  table, or the raw `.obp`.
+- Type 1 → `.o3d`; type 2 → native `.2` model; type 5 → `.bmat`; type 6 → `.dds`.
+- Type 8 → `.anm`; type 9 → `.bnk`; type 12 → `.gfx`; types 11/15/20 → `.smf`, `.sam` and `.loc`.
+- `anim_streams.upak` → numbered zlib streams; the extension identifiable from the header is
+  preserved.
+- `*.pck` → `.wem` and, when the table lists them, `.bnk`.
+- `video` → exact `.bik` and `.sub` copies.
+- `otros` → exact copies of `scripts.obsp` and the world `.bin` files.
 
-## Limitaciones conocidas
+## Known limitations
 
-- Los modelos se conservan como `.2` y los objetos como `.o3d`. No se convierten a FBX/GLB ni se reconstruyen esqueletos o pesos.
-- El reemplazo DDS exige el mismo tamaño binario y la misma estructura. Todavía no reconstruye tablas u offsets para texturas de tamaño diferente.
-- La copia UPAK se verifica estructuralmente, pero conviene probar cada modificación en el juego y conservar el archivo original.
-- La instalación necesita espacio libre para un respaldo completo y otra copia temporal del UPAK; `media.upak` ocupa varios GB.
-- No mezcla automáticamente dos UPAK modificados. Para crear un segundo cambio acumulativo, parte del UPAK actualmente instalado o restaura primero el respaldo.
-- Los `.wem` permanecen en el formato original Wwise. Para interpretarlos por evento o reproducir música dinámica se recomiendan wwiser y vgmstream.
+- Models are kept as `.2` and objects as `.o3d`. They are not converted to FBX/GLB, and skeletons
+  or weights are not rebuilt.
+- DDS replacement demands the same binary size and the same structure. It does not yet rebuild
+  tables or offsets for textures of a different size.
+- The UPAK copy is verified structurally, but every modification should still be tested in-game,
+  and the original file kept.
+- Installing needs free space for a full backup plus another temporary copy of the UPAK;
+  `media.upak` takes several GB.
+- It does not merge two modified UPAK files automatically. To build a second cumulative change,
+  start from the currently installed UPAK or restore the backup first.
+- `.wem` files stay in the original Wwise format. To interpret them by event or to play dynamic
+  music, wwiser and vgmstream are recommended.
 
-## Pruebas
+## Tests
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+## Credits
+
+This repository distributes no third-party code or binaries: everything tracked here is original
+work and uses only the Python standard library. What does come from outside is **knowledge about
+the game's formats**, and that has to be acknowledged.
+
+The readers for `manifest.bin`, OBPK and AKPK are original implementations, but they derive from
+descriptions published by other people: the QuickBMS scripts for Darksiders and Darksiders II
+(http://quickbms.aluigi.org), the information about the manifest that those scripts credit to
+DS2extract, and the ZenHAX thread that documented the later versions of the format. The zlib
+stream sweep over `anim_streams.upak` was inspired by the behaviour of offzip, though it does
+not use it.
+
+Several of those sources credit no author anywhere verifiable; in `CREDITS.md` they are marked
+as pending identification rather than attributed to someone by guesswork.
+
+The full list — authors, sources, licenses, where each one was verified, and what it
+contributed — lives in [CREDITS.md](CREDITS.md). It is not repeated here so the two cannot drift
+apart.
+
+## License
+
+Darkstractor is released under the **MIT License**. The full text is in [LICENSE](LICENSE).
+
+Copyright (c) 2026 BOTProT800
+
+In short: you may use, copy, modify and redistribute this code, including commercially, as long
+as you keep the copyright notice and the license text. The software comes with no warranty of
+any kind.
+
+This license covers **only Darkstractor's own code**. The third-party tools and sources cited in
+[CREDITS.md](CREDITS.md) keep theirs. Darksiders II Deathinitive Edition, its files and its
+assets belong to their respective owners: this project distributes no game content.
