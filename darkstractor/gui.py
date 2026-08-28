@@ -6,19 +6,9 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from tkinter import simpledialog
 
 from .errors import CancelledError, DarkstractorError
 from .models import Archive, Entry
-from .repack import RepackResult, create_patched_upak
-from .installation import (
-    InstallationResult,
-    active_installations,
-    default_backup_root,
-    install_mod,
-    read_mod_manifest,
-    restore_backup,
-)
 from .service import ensure_free_space, extract_entries, human_size, list_obp_members, scan_game
 
 DEFAULT_GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition")
@@ -87,7 +77,7 @@ class DarkstractorApp(tk.Tk):
         ttk.Label(header, text="DARKSTRACTOR", style="Title.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             header,
-            text="Extractor y gestor seguro de mods para Darksiders II Deathinitive Edition",
+            text="Extractor de recursos de Darksiders II Deathinitive Edition",
             style="Muted.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(2, 0))
         ttk.Label(header, textvariable=self.summary_var, style="Muted.TLabel").grid(row=0, column=1, rowspan=2, sticky="e")
@@ -178,23 +168,8 @@ class DarkstractorApp(tk.Tk):
         self.extract_selected_button.pack(side="right")
         self.extract_all_button = ttk.Button(options, text="Extraer visibles", command=self.extract_visible)
         self.extract_all_button.pack(side="right", padx=(0, 8))
-        self.replace_button = ttk.Button(options, text="Reemplazar DDS…", command=self.replace_dds)
-        self.replace_button.pack(side="right", padx=(0, 8))
         self.cancel_button = ttk.Button(options, text="Cancelar", command=self.cancel, state="disabled")
         self.cancel_button.pack(side="right", padx=(0, 8))
-
-        mods = ttk.Frame(self, padding=(22, 0, 22, 8))
-        mods.pack(fill="x")
-        ttk.Label(mods, text="MODIFICACIONES", foreground="#aeb5c0", font=("Segoe UI Semibold", 9)).pack(side="left")
-        self.install_button = ttk.Button(mods, text="Instalar UPAK verificado…", command=self.install_upak)
-        self.install_button.pack(side="left", padx=(12, 8))
-        self.restore_button = ttk.Button(mods, text="Restaurar respaldo", command=self.restore_upak)
-        self.restore_button.pack(side="left")
-        ttk.Label(
-            mods,
-            text="El juego debe estar cerrado; nunca se instala sin respaldo y SHA-256.",
-            style="Muted.TLabel",
-        ).pack(side="right")
 
         bottom = ttk.Frame(self, padding=(22, 0, 22, 18))
         bottom.pack(fill="x")
@@ -233,9 +208,6 @@ class DarkstractorApp(tk.Tk):
             self.extract_selected_button,
             self.extract_all_button,
             self.explore_button,
-            self.replace_button,
-            self.install_button,
-            self.restore_button,
         ):
             widget.configure(state=state)
         self.back_button.configure(state="disabled" if busy or self.inner_parent is None else "normal")
@@ -398,150 +370,6 @@ class DarkstractorApp(tk.Tk):
         self._start_worker(task, "Extracción terminada")
         self.status_var.set(f"Procesando {len(entries):,} entradas…")
 
-    def replace_dds(self) -> None:
-        selected = self.entry_tree.selection()
-        if len(selected) != 1:
-            messagebox.showinfo(
-                "Reemplazar DDS",
-                "Abre un paquete y selecciona una única textura DDS interna.",
-            )
-            return
-        entry = self.visible_entries[int(selected[0])]
-        if entry.kind != "obp-dds":
-            messagebox.showinfo(
-                "Reemplazar DDS",
-                "La entrada seleccionada no es una textura DDS interna.",
-            )
-            return
-        replacement = filedialog.askopenfilename(
-            title="DDS de reemplazo compatible",
-            filetypes=(("DirectDraw Surface", "*.dds"), ("Todos los archivos", "*.*")),
-        )
-        if not replacement:
-            return
-
-        output_dir = Path(self.output_var.get()).expanduser()
-        initial_dir = output_dir if output_dir.is_dir() else Path.cwd()
-        source_name = entry.source.stem + "_mod" + entry.source.suffix
-        destination_text = filedialog.asksaveasfilename(
-            title="Guardar copia UPAK modificada",
-            initialdir=initial_dir,
-            initialfile=source_name,
-            defaultextension=entry.source.suffix,
-            filetypes=(("Darksiders II UPAK", "*.upak"), ("Todos los archivos", "*.*")),
-        )
-        if not destination_text:
-            return
-        destination = Path(destination_text)
-        overwrite = False
-        if destination.exists():
-            overwrite = messagebox.askyesno(
-                "Sobrescribir copia",
-                f"Ya existe:\n{destination}\n\n¿Quieres reemplazar esa copia?",
-            )
-            if not overwrite:
-                return
-
-        def task():
-            return create_patched_upak(
-                entry,
-                Path(replacement),
-                destination,
-                overwrite=overwrite,
-                cancel=self.cancel_event,
-                log=self._log,
-            )
-
-        self._start_worker(task, "UPAK modificado creado")
-        self.status_var.set(
-            f"Validando DDS y reconstruyendo una copia de {entry.source.name}…"
-        )
-
-    def install_upak(self, patched_path: Path | None = None) -> None:
-        if patched_path is None:
-            selected = filedialog.askopenfilename(
-                title="UPAK generado por Darkstractor",
-                initialdir=self.output_var.get(),
-                filetypes=(("Darksiders II UPAK", "*.upak"), ("Todos los archivos", "*.*")),
-            )
-            if not selected:
-                return
-            patched_path = Path(selected)
-        try:
-            manifest = read_mod_manifest(patched_path)
-        except DarkstractorError as error:
-            messagebox.showerror("UPAK no verificable", str(error))
-            return
-        game = Path(self.game_var.get()).expanduser()
-        target = game / "media" / manifest.source_name
-        if not messagebox.askyesno(
-            "Instalar modificación",
-            f"Se instalará como:\n{target}\n\n"
-            f"Textura: {manifest.texture_name}\n"
-            f"SHA-256 del mod: {manifest.patched_sha256[:16]}…\n\n"
-            f"El estado actual se respaldará en:\n{default_backup_root(game)}\n\n"
-            "Cierra el juego antes de continuar. ¿Instalar?",
-        ):
-            return
-
-        def task():
-            return install_mod(
-                game,
-                patched_path,
-                cancel=self.cancel_event,
-                log=self._log,
-            )
-
-        self._start_worker(task, "Modificación instalada")
-        self.status_var.set(f"Verificando, respaldando e instalando {manifest.source_name}…")
-
-    def restore_upak(self) -> None:
-        game = Path(self.game_var.get()).expanduser()
-        try:
-            states = active_installations(game)
-        except DarkstractorError as error:
-            messagebox.showerror("Restaurar respaldo", str(error))
-            return
-        if not states:
-            messagebox.showinfo("Restaurar respaldo", "No hay modificaciones activas administradas por Darkstractor.")
-            return
-        names = [state.target_name for state in states]
-        preferred = self.current_archive.name if self.current_archive and self.current_archive.name in names else None
-        if preferred:
-            target_name = preferred
-        elif len(names) == 1:
-            target_name = names[0]
-        else:
-            target_name = simpledialog.askstring(
-                "Restaurar respaldo",
-                "Escribe el archivo que quieres restaurar:\n\n" + "\n".join(names),
-                parent=self,
-            )
-            if not target_name:
-                return
-            target_name = target_name.strip()
-            if target_name not in names:
-                messagebox.showerror("Restaurar respaldo", "Ese archivo no tiene una modificación activa.")
-                return
-        state = next(item for item in states if item.target_name == target_name)
-        if not messagebox.askyesno(
-            "Restaurar estado anterior",
-            f"Se restaurará {target_name} desde:\n{state.backup_path}\n\n"
-            "El archivo instalado será reemplazado. ¿Continuar?",
-        ):
-            return
-
-        def task():
-            return restore_backup(
-                game,
-                target_name,
-                cancel=self.cancel_event,
-                log=self._log,
-            )
-
-        self._start_worker(task, "Respaldo restaurado")
-        self.status_var.set(f"Verificando y restaurando {target_name}…")
-
     def cancel(self) -> None:
         self.cancel_event.set()
         self.status_var.set("Cancelando al terminar el bloque actual…")
@@ -561,32 +389,6 @@ class DarkstractorApp(tk.Tk):
                     elif isinstance(result, list):
                         self._append_log(f"Completado: {len(result)} archivos escritos")
                         messagebox.showinfo("Darkstractor", f"{message}.\n\nArchivos escritos: {len(result)}")
-                    elif isinstance(result, RepackResult):
-                        self._append_log(
-                            f"Reempaquetado verificado: {result.output} "
-                            f"({result.padding} bytes de margen en el OBP)"
-                        )
-                        install_now = messagebox.askyesno(
-                            "UPAK modificado creado",
-                            f"La textura fue reemplazada y verificada.\n\n"
-                            f"Salida:\n{result.output}\n\n"
-                            f"Manifiesto SHA-256:\n{result.manifest}\n\n"
-                            "El archivo original del juego no fue modificado.\n\n"
-                            "¿Quieres instalarlo ahora con respaldo automático?",
-                        )
-                        if install_now:
-                            self.install_upak(result.output)
-                    elif isinstance(result, InstallationResult):
-                        verb = "instalado" if result.action == "install" else "restaurado"
-                        self._append_log(
-                            f"UPAK {verb}: {result.target} | SHA-256 {result.installed_sha256}"
-                        )
-                        detail = "Ya estaba en ese estado." if result.already_done else "La comprobación SHA-256 fue correcta."
-                        messagebox.showinfo(
-                            "Modificación instalada" if result.action == "install" else "Respaldo restaurado",
-                            f"Archivo {verb} correctamente:\n{result.target}\n\n"
-                            f"Respaldo:\n{result.backup}\n\n{detail}",
-                        )
                 elif kind == "cancelled":
                     self._set_busy(False, str(payload))
                     self._append_log(str(payload))

@@ -33,7 +33,7 @@ OBP_TYPE_INFO: dict[int, tuple[str, str]] = {
     1: (".o3d", "o3d"),
     2: (".2", "modelo"),
     3: (".3", "iluminación"),
-    4: (".4", "malla auxiliar"),
+    4: (".4", "colisión"),
     5: (".bmat", "bmat"),
     6: (".dds", "dds"),
     7: (".tfnt", "fuente"),

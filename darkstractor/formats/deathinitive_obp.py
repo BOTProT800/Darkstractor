@@ -24,7 +24,15 @@ class DeathinitiveObp:
 
 
 def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None) -> DeathinitiveObp:
-    """Lee la variante OBPK de Deathinitive sin descomprimir su payload."""
+    """Lee la variante OBPK de Deathinitive sin descomprimir su payload.
+
+    La cabecera declara dónde termina la tabla de nombres y cuánto ocupa el
+    bloque de metadatos que la sigue. Esos dos valores son las anclas del
+    formato: la tabla de nombres puede estar vacía y los metadatos por miembro
+    tienen longitud variable, así que recorrerlos a ciegas descarrila. Con las
+    anclas basta con leer los nombres que realmente haya y tomar el array de
+    tamaños del final del bloque.
+    """
     file_size = path.stat().st_size
     if size is None:
         size = file_size - base
@@ -37,65 +45,66 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
             raise FormatError("El segmento no comienza con OBPK")
 
         header = [reader.u32() for _ in range(6)]
-        reader.u8()
+        variant = reader.u8()
         table_offset = header[1]
+        table_size = header[2]
+        names_end = header[3]
+        metadata_size = header[4]
         payload_offset = header[5]
-        if not 0 <= table_offset < payload_offset < size:
+        if not 0 < table_offset < names_end <= names_end + metadata_size <= payload_offset < size:
             raise FormatError("Offsets de cabecera OBP inválidos")
+        if names_end - table_offset != table_size:
+            raise FormatError("La cabecera OBP no concuerda con el tamaño de su tabla")
         reader.seek(table_offset)
 
         group_count = reader.u32()
         file_count = reader.u32()
-        opaque_table_size = reader.u32()
+        hash_table_size = reader.u32()
         reader.u32()
         if group_count > 100_000 or file_count > 10_000_000:
             raise FormatError("Cantidad inválida de grupos o archivos OBP")
-        reader.seek(opaque_table_size, 1)
+        if file_count == 0:
+            raise FormatError("La tabla OBP no declara ningún archivo")
+        if metadata_size < 4 * file_count:
+            raise FormatError("El bloque de metadatos OBP no cabe la tabla de tamaños")
+        reader.seek(hash_table_size, 1)
 
         for _ in range(4):
             reader.u32()
 
-        groups: list[tuple[int, int]] = []
+        type_ids: list[int] = []
         for _ in range(group_count):
             type_id = reader.u32()
             member_count = reader.u32()
             reader.u32()
             reader.u32()
-            if member_count > file_count:
+            if member_count > file_count or reader.tell() + member_count > names_end:
                 raise FormatError("Grupo OBP con demasiados elementos")
             reader.read(member_count)
-            groups.append((type_id, member_count))
-
-        reader.u32()
-        reader.u8()
-
-        names: list[str] = []
-        for index in range(file_count):
-            reader.u32()
-            reader.u32()
-            length = reader.u32()
-            if length > 1_000_000:
-                raise FormatError(f"Nombre OBP demasiado largo: {length}")
-            raw_name = reader.read(length).decode("utf-8", "replace")
-            names.append(raw_name or f"archivo_{index:05d}")
-
-        type_ids: list[int] = []
-        for type_id, member_count in groups:
-            for _ in range(member_count):
-                type_ids.append(type_id)
-                reader.u32()
-                extra_size = reader.u32()
-                if extra_size > payload_offset:
-                    raise FormatError("Metadatos OBP fuera de rango")
-                reader.seek(extra_size, 1)
+            type_ids.extend([type_id] * member_count)
         if len(type_ids) != file_count:
             raise FormatError(
                 f"La tabla OBP declara {file_count} archivos, pero sus grupos contienen {len(type_ids)}"
             )
 
+        # Muchos paquetes de mapas guardan solo los hashes y omiten los nombres:
+        # ahí la región termina en cuanto empiezan los metadatos.
+        names: list[str] = []
+        if reader.tell() + 5 <= names_end:
+            reader.u32()
+            reader.u8()
+            while reader.tell() < names_end and len(names) < file_count:
+                reader.u32()
+                reader.u32()
+                length = reader.u32()
+                if reader.tell() + length > names_end:
+                    raise FormatError("Un nombre OBP se sale de su tabla")
+                names.append(reader.read(length).decode("utf-8", "replace"))
+        while len(names) < file_count:
+            names.append(f"archivo_{len(names):05d}")
+
+        reader.seek(names_end + metadata_size - 4 * file_count)
         sizes = [reader.u32() for _ in range(file_count)]
-        if reader.tell() > payload_offset:
-            raise FormatError("La tabla OBP invade el payload comprimido")
 
         reader.seek(payload_offset)
         declared_unpacked_size = reader.u32()
@@ -107,12 +116,13 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
         members: list[ObpMember] = []
         unpacked_offset = 0
         for name, type_id, member_size in zip(names, type_ids, sizes):
-            normalized = str(PurePosixPath(name.replace("\\", "/")))
+            normalized = str(PurePosixPath((name or "sin_nombre").replace("\\", "/")))
             members.append(ObpMember(normalized, type_id, unpacked_offset, member_size))
             unpacked_offset += member_size
 
         if declared_unpacked_size != unpacked_offset:
             raise FormatError(
-                f"La tabla OBP suma {unpacked_offset} bytes, pero el payload declara {declared_unpacked_size}"
+                f"La tabla OBP (variante {variant}) suma {unpacked_offset} bytes, "
+                f"pero el payload declara {declared_unpacked_size}"
             )
         return DeathinitiveObp(members, stream_offset, compressed_size, unpacked_offset)

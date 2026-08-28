@@ -1,10 +1,10 @@
 # Darkstractor
 
-A graphical Python tool for exploring, extracting and managing modifications for
+A graphical Python tool for exploring and extracting the contents of
 **Darksiders II Deathinitive Edition** on Windows.
 
-Extraction and repacking happen in separate folders. Installing a mod only happens after an
-explicit confirmation, with the game closed, an automatic backup and SHA-256 checks.
+Darkstractor only reads. It never writes inside the game installation: every resource comes
+out into the output folder you pick, and the game files are left exactly as they were.
 
 ## Features
 
@@ -14,17 +14,14 @@ explicit confirmation, with the game closed, an automatic backup and SHA-256 che
   and types.
 - Extracts DDS, O3D, `.2` models, BMAT, ANM, BNK, SMF, LOC, fonts and auxiliary formats directly.
 - Automatically decompresses Scaleform `.zgfx` resources to `.gfx`.
+- Reads the packages that ship only hashes, with no name table: their members still come out
+  split, typed and in order, named `archivo_00000` and upwards.
 - When a variant has no usable table, recovers the whole `.bod` through zlib.
 - Recovers the zlib streams of `anim_streams.upak` without depending on offzip.
 - Extracts Wwise AKPK packages (`core.pck`, `en.pck`, `es.pck`) to `.wem`, preserving their IDs
   and language.
 - Copies `.bik` videos, subtitles and auxiliary files.
 - Includes search, multiple selection, cancellation and safe policies for duplicate files.
-- Replaces compatible DDS files and generates a complete UPAK copy, verified and with identical
-  offsets.
-- Generates a safety manifest linking every mod to the exact version of the source UPAK.
-- Installs and uninstalls UPAK files with automatic backup, transactional writes and SHA-256
-  verification.
 - Requires no QuickBMS, no offzip and no external Python packages.
 
 ## Quick start
@@ -52,38 +49,6 @@ C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition
 
 The **Separar recursos internos** option extracts each member under its own name. Turning it off
 keeps the secondary segments as `.obp`.
-
-## Replacing a DDS texture
-
-1. Open the OBP package containing the texture and extract it.
-2. Edit the DDS preserving its dimensions, compression format, mipmaps and exact file size.
-3. Go back to the open package, select the texture and press **Reemplazar DDS…**.
-4. Choose the edited DDS and a location for the new `*_mod.upak` copy.
-5. When it finishes, accept **Instalar ahora** or use **Instalar UPAK verificado…** later.
-
-Darkstractor validates the DDS header, rebuilds the zlib stream, checks that the OBP still fits
-in its original space, and reads the texture back from the generated UPAK. Next to the UPAK it
-creates `*.upak.darkstractor.json`, holding the hashes of both the source and the result. Both
-files must stay together for it to be installable.
-
-## Installing and uninstalling safely
-
-1. Close `Darksiders2.exe`.
-2. Press **Instalar UPAK verificado…** and select the `*_mod.upak` you generated.
-3. Darkstractor checks that the mod has not been altered and that the installed UPAK is exactly
-   the version used to create it.
-4. Before replacing it, a copy of the previous state is saved and verified in `media\backups`,
-   inside the game installation.
-5. To uninstall it, press **Restaurar respaldo**. Both the installed file and the backup are
-   verified before restoring, too.
-
-The write goes to a temporary file inside the game folder first, and only then replaces the
-UPAK. If Windows denies access to `Program Files (x86)`, close Steam and run Darkstractor as
-administrator. Backups are kept after restoring, for manual recovery.
-
-If Steam updates or modifies the UPAK, Darkstractor refuses to install an incompatible version.
-If another program changes an active mod, the normal restore also stops rather than erasing
-those changes; the command line offers `--force` solely for deliberate recovery.
 
 ## Command line
 
@@ -117,34 +82,6 @@ Extract only one specific internal resource:
 python -m darkstractor extract --output .\extraccion --archive media.upak --filter ui_buttons_pc --inner-filter button_caps.dds
 ```
 
-Build a modified UPAK from the command line:
-
-```powershell
-python -m darkstractor replace-dds `
-  --archive media.upak `
-  --package ui_buttons_pc `
-  --member button_caps.dds `
-  --replacement .\editado\button_caps.dds `
-  --output .\mods\media_mod.upak
-```
-
-Install it with backup and hashes:
-
-```powershell
-python -m darkstractor install-upak `
-  --input .\mods\media_mod.upak
-```
-
-List active modifications and restore the previous state:
-
-```powershell
-python -m darkstractor mods
-python -m darkstractor restore-upak --archive media.upak
-```
-
-You can add `--backup-dir C:\Backups\Darkstractor` to these commands to pick another drive. By
-default both the GUI and the command line use `media\backups` inside the game installation.
-
 Use `--raw` to keep UPAK segments as `.obp`, and `--overwrite` to overwrite existing files. By
 default, duplicates get a numeric suffix.
 
@@ -152,7 +89,8 @@ default, duplicates get a numeric suffix.
 
 - `media.upak`, `maps.upak` → named internal resources; the whole `.bod` when the variant has no
   table, or the raw `.obp`.
-- Type 1 → `.o3d`; type 2 → native `.2` model; type 5 → `.bmat`; type 6 → `.dds`.
+- Type 1 → `.o3d`; type 2 → native `.2` model; type 4 → collision data (sometimes a Havok
+  tagfile); type 5 → `.bmat`; type 6 → `.dds`.
 - Type 8 → `.anm`; type 9 → `.bnk`; type 12 → `.gfx`; types 11/15/20 → `.smf`, `.sam` and `.loc`.
 - `anim_streams.upak` → numbered zlib streams; the extension identifiable from the header is
   preserved.
@@ -164,14 +102,6 @@ default, duplicates get a numeric suffix.
 
 - Models are kept as `.2` and objects as `.o3d`. They are not converted to FBX/GLB, and skeletons
   or weights are not rebuilt.
-- DDS replacement demands the same binary size and the same structure. It does not yet rebuild
-  tables or offsets for textures of a different size.
-- The UPAK copy is verified structurally, but every modification should still be tested in-game,
-  and the original file kept.
-- Installing needs free space for a full backup plus another temporary copy of the UPAK;
-  `media.upak` takes several GB.
-- It does not merge two modified UPAK files automatically. To build a second cumulative change,
-  start from the currently installed UPAK or restore the backup first.
 - `.wem` files stay in the original Wwise format. To interpret them by event or to play dynamic
   music, wwiser and vgmstream are recommended.
 

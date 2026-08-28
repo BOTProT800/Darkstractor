@@ -9,16 +9,16 @@ Each entry states whether the component **is redistributed inside this repositor
 
 ## Redistribution status
 
-**This repository redistributes no third-party binaries or code.** Verified on 2026-08-26
-through three separate checks:
+**This repository redistributes no third-party binaries or code.** Verified on 2026-08-26 and
+re-checked on 2026-08-27 through three separate checks:
 
 - `git ls-files` across the whole tree: every tracked file is original code, documentation or
   configuration. There is no `vendor/` or `tools/` directory, and no binaries.
 - [.gitignore](.gitignore): its only inclusion exception is `!tests/.tmp/.gitkeep`. There are no
   rules of the form `!path/something.exe` forcing an executable to be tracked.
 - [pyproject.toml](pyproject.toml): `dependencies = []`. Every `import` in the package resolves
-  to the Python standard library (`zlib`, `struct`, `hashlib`, `tkinter`, `subprocess`, `json`,
-  `csv`, `pathlib`, `threading`...).
+  to the Python standard library (`zlib`, `struct`, `tkinter`, `pathlib`, `threading`, `shutil`,
+  `argparse`...).
 
 No third-party code is therefore linked or combined with our own, and the choice of the MIT
 License conflicts with no external license in the current state of the tree.
@@ -59,21 +59,6 @@ License conflicts with no external license in the current state of the tree.
   corrupt zlib stream was mirrored in the `anim_streams.upak` sweep, implemented from scratch in
   [darkstractor/formats/zlib_stream.py](darkstractor/formats/zlib_stream.py) using the standard
   library's `zlib` module.
-
-### tasklist (Microsoft Windows)
-
-- **Author(s):** Microsoft
-- **Source:** utility shipped with Windows (`System32\tasklist.exe`)
-- **License:** the user's operating system license. It does not apply to this project's code.
-- **Verified in:** not applicable; it is an operating system component.
-- **Redistribution:** **No — only detected on the system.** It runs as a separate process, which
-  is mere aggregation and does not affect Darkstractor's license.
-- **Added:** 2026-08-22
-- **Where it is used:** [darkstractor/installation.py:190](darkstractor/installation.py:190)
-- **Use:** invoked as an external process.
-- **Modified?:** No.
-- **What it gave us:** checking whether `Darksiders2.exe` is still running before touching an
-  installed UPAK.
 
 ### wwiser and vgmstream
 
@@ -126,20 +111,6 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 - **What it gave us:** it documented the `manifest.bin` variant used by the later releases of the
   game, which is the one Deathinitive Edition ships.
 
-### DDS format and the DX10/DXGI extension
-
-- **Author(s):** Microsoft (public documentation of the format)
-- **Source:** the public DirectDraw Surface specification. **Not verified inside the repo.**
-- **License:** the format is publicly documented; **the license of that documentation belongs to
-  Microsoft and has not been verified**. No text or code was copied, so it imposes no conditions
-  on our own code.
-- **Redistribution:** **No.**
-- **Added:** 2026-08-22
-- **Where it is used:** [darkstractor/formats/dds.py](darkstractor/formats/dds.py)
-- **Use:** original implementation based on a publicly documented format.
-- **What it gave us:** validating DDS headers (the `DDS ` magic, the 124-byte header, FourCC,
-  mipmaps and the DX10 block) before accepting a replacement texture.
-
 ### Audiokinetic Wwise AKPK container
 
 - **Author(s):** Audiokinetic (the format); the specific description used comes from
@@ -168,6 +139,10 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 - **What it gave us:** the `OBPK\0` identifier, the hashed name table and the folder tree.
   **The Deathinitive Edition variant with 64-bit offsets and its internal type table is our own
   work**, not covered by that script.
+- **Update 2026-08-27:** the header anchors that make the table readable — the absolute end of
+  the name table and the size of the metadata block that follows it — were derived here by
+  comparing packages against the installed game, with no external source. They are what allows
+  reading the map packages that ship only hashes and no name table.
 
 ### Scaleform GFX (`.zgfx`)
 
@@ -183,8 +158,9 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 
 ## History
 
-Third-party components that were once tracked in this repository and no longer are. They are
-kept here because their influence is still present in the code.
+Third-party components that were once tracked in this repository and no longer are, plus
+external resources that shaped code since removed. Nothing is ever deleted from this file: an
+entry moves here, dated, when the material it describes stops being used.
 
 ### darksiders.bms
 
@@ -219,6 +195,43 @@ kept here because their influence is still present in the code.
 - **Use:** copied verbatim while it was tracked; consulted as a reference afterwards.
 - **Modified?:** No.
 - **What it gave us:** reading the AKPK container. See the format entry above.
+
+### tasklist (Microsoft Windows)
+
+- **Author(s):** Microsoft
+- **Source:** utility shipped with Windows (`System32\tasklist.exe`)
+- **License:** the user's operating system license. It does not apply to this project's code.
+- **Verified in:** not applicable; it is an operating system component.
+- **Redistribution:** **No — only detected on the system.** It runs as a separate process, which
+  is mere aggregation and does not affect Darkstractor's license.
+- **Added:** 2026-08-22
+- **Where it was used:** `darkstractor/installation.py` (deleted on 2026-08-27; the last tracked
+  version is `git show b132e3e:darkstractor/installation.py`)
+- **Retired:** 2026-08-27. Darkstractor no longer installs or restores UPAK files, so it no
+  longer needs to check whether `Darksiders2.exe` is running. `tasklist` is invoked nowhere in
+  the tree and no `subprocess` call survives in the package.
+- **Use:** invoked as an external process.
+- **Modified?:** No.
+- **What it gave us:** checking whether `Darksiders2.exe` is still running before touching an
+  installed UPAK.
+
+### DDS format and the DX10/DXGI extension
+
+- **Author(s):** Microsoft (public documentation of the format)
+- **Source:** the public DirectDraw Surface specification. **Not verified inside the repo.**
+- **License:** the format is publicly documented; **the license of that documentation belongs to
+  Microsoft and has not been verified**. No text or code was copied, so it imposes no conditions
+  on our own code.
+- **Redistribution:** **No.**
+- **Added:** 2026-08-22
+- **Where it was used:** `darkstractor/formats/dds.py` (deleted on 2026-08-27; the last tracked
+  version is `git show b132e3e:darkstractor/formats/dds.py`)
+- **Retired:** 2026-08-27. The header reader existed only to validate a replacement texture.
+  With the replacement pipeline gone, extraction writes each `.dds` member out byte for byte
+  without parsing it, so no knowledge of the format is in use any more.
+- **Use:** original implementation based on a publicly documented format.
+- **What it gave us:** validating DDS headers (the `DDS ` magic, the 124-byte header, FourCC,
+  mipmaps and the DX10 block) before accepting a replacement texture.
 
 ## Open compliance obligations
 
