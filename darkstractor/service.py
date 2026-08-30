@@ -10,7 +10,13 @@ from typing import Callable, Iterable
 
 from .errors import CancelledError, DarkstractorError, FormatError
 from .formats.akpk import parse_akpk
-from .formats.deathinitive_obp import DeathinitiveObp, ObpMember, parse_deathinitive_obp
+from .formats.bnk import parse_bank_media
+from .formats.deathinitive_obp import (
+    VARIANT_CHUNK_PER_MEMBER,
+    DeathinitiveObp,
+    ObpMember,
+    parse_deathinitive_obp,
+)
 from .formats.manifest import parse_manifest
 from .formats.zlib_stream import (
     declared_size_before,
@@ -253,6 +259,118 @@ def _convert_zgfx(raw_path: Path, destination: Path, cancel: Event | None) -> No
         raw_path.unlink(missing_ok=True)
 
 
+def _split_bank(bank: Path, cancel: Event | None, log: Log) -> list[Path]:
+    """Separa el audio incrustado de un SoundBank, junto al `.bnk` original.
+
+    El banco se conserva: hace falta para interpretar los eventos con wwiser.
+    """
+    try:
+        media = parse_bank_media(bank)
+    except FormatError as error:
+        log(f"No se pudo leer el banco {bank.name}: {error}")
+        return []
+    if not media:
+        return []
+
+    folder = bank.with_name(bank.stem + "_wem")
+    produced: list[Path] = []
+    with bank.open("rb") as source:
+        for item in media:
+            if cancel and cancel.is_set():
+                raise CancelledError("Extracción cancelada")
+            destination = folder / f"{item.file_id}.wem"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(destination.name + ".partial")
+            source.seek(item.offset)
+            remaining = item.size
+            try:
+                with temporary.open("wb") as target:
+                    while remaining:
+                        block = source.read(min(1024 * 1024, remaining))
+                        if not block:
+                            raise FormatError(f"El banco {bank.name} está truncado")
+                        target.write(block)
+                        remaining -= len(block)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, destination)
+            except Exception:
+                temporary.unlink(missing_ok=True)
+                raise
+            produced.append(destination)
+    log(f"Banco {bank.name}: {len(produced)} .wem separados en {folder.name}")
+    return produced
+
+
+def _extract_chunked_members(
+    archive: DeathinitiveObp,
+    source: Path,
+    base: int,
+    segment_size: int,
+    destinations: dict[int, Path],
+    *,
+    cancel: Event | None,
+    progress: Progress | None,
+    log: Log,
+) -> list[Path]:
+    """Extrae la variante en la que cada miembro tiene su propio stream zlib.
+
+    No hace falta recorrer el payload entero: cada chunk se descomprime por
+    separado, así que se salta directamente a los miembros seleccionados.
+    """
+    bounds = [member.chunk_offset or 0 for member in archive.members] + [segment_size]
+    completed: list[Path] = []
+    with source.open("rb") as file:
+        for index in sorted(destinations):
+            member = archive.members[index]
+            if member.chunk_offset is None:
+                raise FormatError(f"El miembro {member.name} no tiene chunk propio")
+            destination = destinations[index]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = destination.with_name(
+                destination.name + (".zgfx.partial" if member.type_id == 12 else ".partial")
+            )
+            file.seek(base + member.chunk_offset + 4)
+            remaining = bounds[index + 1] - member.chunk_offset - 4
+            decoder = zlib.decompressobj()
+            written = 0
+            try:
+                with temporary.open("wb") as target:
+                    while remaining > 0 and not decoder.eof:
+                        if cancel and cancel.is_set():
+                            raise CancelledError("Extracción cancelada")
+                        packed = file.read(min(1024 * 1024, remaining))
+                        if not packed:
+                            break
+                        remaining -= len(packed)
+                        block = decoder.decompress(packed)
+                        target.write(block)
+                        written += len(block)
+                        if progress:
+                            progress(len(packed))
+                    block = decoder.flush()
+                    target.write(block)
+                    written += len(block)
+                    target.flush()
+                    os.fsync(target.fileno())
+                if written != member.size:
+                    raise FormatError(
+                        f"El chunk de {member.name} dio {written} bytes y declaraba {member.size}"
+                    )
+                if member.type_id == 12:
+                    _convert_zgfx(temporary, destination, cancel)
+                else:
+                    os.replace(temporary, destination)
+            except Exception:
+                temporary.unlink(missing_ok=True)
+                raise
+            completed.append(destination)
+            log(f"Extraído: {destination.name} ({human_size(destination.stat().st_size)})")
+            if member.type_id == 9:
+                completed.extend(_split_bank(destination, cancel, log))
+    return completed
+
+
 def _extract_obp_member_entries(
     entries: list[Entry],
     output: Path,
@@ -288,6 +406,18 @@ def _extract_obp_member_entries(
     if not destinations:
         return []
 
+    if archive.variant == VARIANT_CHUNK_PER_MEMBER:
+        return _extract_chunked_members(
+            archive,
+            first.source,
+            base,
+            segment_size,
+            destinations,
+            cancel=cancel,
+            progress=progress,
+            log=log,
+        )
+
     current_index = 0
     unpacked_position = 0
     current_target = None
@@ -309,6 +439,8 @@ def _extract_obp_member_entries(
             os.replace(current_temp, current_destination)
         completed.append(current_destination)
         log(f"Extraído: {current_destination.name} ({human_size(current_destination.stat().st_size)})")
+        if member.type_id == 9:
+            completed.extend(_split_bank(current_destination, cancel, log))
         current_target = None
         current_temp = None
         current_destination = None

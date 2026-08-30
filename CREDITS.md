@@ -125,6 +125,22 @@ outside was *knowledge about the formats*, recorded in the two sections below.
   size, size, and the multiplied offset) in order to extract the `.wem` files from `core.pck`,
   `en.pck` and `es.pck`. Endianness and language detection are our own additions.
 
+### Audiokinetic Wwise SoundBank (`.bnk`)
+
+- **Author(s):** Audiokinetic (the format). The section layout is publicly documented by the
+  Wwise modding community — most visibly by the **wwiser** project — but **no single source was
+  consulted for this implementation**, so no individual is credited here.
+- **Source:** none consulted; the layout was applied from the format's public description and
+  then verified against the game's own banks.
+- **License:** **Unknown — needs verification.**
+- **Redistribution:** **No — only consulted.**
+- **Added:** 2026-08-27
+- **Where it is used:** [darkstractor/formats/bnk.py](darkstractor/formats/bnk.py)
+- **Use:** original implementation.
+- **What it gave us:** the chunked section layout (`BKHD`, `DIDX`, `DATA`, `HIRC`) and the fact
+  that `DIDX` holds `{id, offset, size}` triples whose offsets are relative to `DATA`. That is
+  what allows splitting the 6813 `.wem` embedded across the game's SoundBanks.
+
 ### OBPK container of the Darksiders engine
 
 - **Author(s):** the description used comes from `darksiders.bms`, whose author is **unknown —
@@ -142,7 +158,9 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 - **Update 2026-08-27:** the header anchors that make the table readable — the absolute end of
   the name table and the size of the metadata block that follows it — were derived here by
   comparing packages against the installed game, with no external source. They are what allows
-  reading the map packages that ship only hashes and no name table.
+  reading the map packages that ship only hashes and no name table. The second variant — one
+  zlib chunk per member, with the table holding chunk offsets instead of sizes — was worked out
+  the same way and is likewise ours.
 
 ### Scaleform GFX (`.zgfx`)
 

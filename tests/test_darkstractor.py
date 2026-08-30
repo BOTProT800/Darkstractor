@@ -8,6 +8,7 @@ from pathlib import Path
 
 from darkstractor.errors import FormatError
 from darkstractor.formats.akpk import parse_akpk
+from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
 from darkstractor.formats.zlib_stream import declared_size_before, extract_stream, find_next_stream
 from darkstractor.models import Entry
@@ -29,13 +30,43 @@ def make_dds(payload: bytes = b"12345678") -> bytes:
     return bytes(header) + payload
 
 
-def make_obp(members: list[tuple[int, bytes, bytes]], *, named: bool = True) -> bytes:
+def make_bnk(media: list[tuple[int, bytes]]) -> bytes:
+    """SoundBank de Wwise con audio incrustado en DIDX/DATA."""
+    index = bytearray()
+    payload = bytearray()
+    for file_id, audio in media:
+        index += struct.pack("<III", file_id, len(payload), len(audio))
+        payload += audio
+    return (
+        b"BKHD" + struct.pack("<I", 8) + bytes(8)
+        + b"DIDX" + struct.pack("<I", len(index)) + bytes(index)
+        + b"DATA" + struct.pack("<I", len(payload)) + bytes(payload)
+        + b"HIRC" + struct.pack("<I", 4) + bytes(4)
+    )
+
+
+def make_obp(members: list[tuple[int, bytes, bytes]], *, named: bool = True, variant: int = 0) -> bytes:
     """Construye un OBPK sintético.
 
     Con ``named=False`` reproduce la variante que usan la mayoría de los
-    paquetes de ``maps.upak``: solo hashes, sin tabla de nombres.
+    paquetes de ``maps.upak``: solo hashes, sin tabla de nombres. Con
+    ``variant=1``, la que comprime cada miembro en su propio stream y guarda
+    offsets de chunk en lugar de tamaños.
     """
-    payload = b"".join(data for _type_id, _name, data in members)
+    payload_offset = 512
+    if variant == 1:
+        chunks = [struct.pack("<I", len(data)) + zlib.compress(data, 9) for _t, _n, data in members]
+        table_values = []
+        cursor = payload_offset
+        for chunk in chunks:
+            table_values.append(cursor)
+            cursor += len(chunk)
+        payload = b"".join(chunks)
+    else:
+        table_values = [len(data) for _t, _n, data in members]
+        raw = b"".join(data for _t, _n, data in members)
+        payload = struct.pack("<I", len(raw)) + zlib.compress(raw, 9)
+
     groups: list[tuple[int, list[tuple[bytes, bytes]]]] = []
     for type_id, name, data in members:
         if not groups or groups[-1][0] != type_id:
@@ -57,11 +88,10 @@ def make_obp(members: list[tuple[int, bytes, bytes]], *, named: bool = True) -> 
     for _type_id, group_members in groups:
         for _name, _data in group_members:
             table += struct.pack("<II", 0, 0)
-    for _type_id, _name, data in members:
-        table += struct.pack("<I", len(data))
+    for value in table_values:
+        table += struct.pack("<I", value)
     metadata_size = table_offset + len(table) - names_end
 
-    payload_offset = 512
     header = b"OBPK\0" + struct.pack(
         "<IIIIII",
         9,
@@ -70,10 +100,10 @@ def make_obp(members: list[tuple[int, bytes, bytes]], *, named: bool = True) -> 
         names_end,
         metadata_size,
         payload_offset,
-    ) + b"\0"
+    ) + bytes([variant])
     result = header + table
     result += bytes(payload_offset - len(result))
-    return result + struct.pack("<I", len(payload)) + zlib.compress(payload, 9) + bytes(128)
+    return result + payload + bytes(0 if variant == 1 else 128)
 
 
 class PathSafetyTests(unittest.TestCase):
@@ -194,6 +224,60 @@ class DeathinitiveObpTests(unittest.TestCase):
         finally:
             source.unlink(missing_ok=True)
             shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_extracts_the_variant_that_compresses_each_member_apart(self) -> None:
+        dds = make_dds()
+        model = b"MODEL" + bytes(2048)
+        data = make_obp([(6, b"texture", dds), (2, b"model", model)], variant=1)
+
+        source = SCRATCH / "por_chunks.upak"
+        output_dir = SCRATCH / "por_chunks"
+        try:
+            source.write_bytes(data)
+            parsed = parse_deathinitive_obp(source)
+            self.assertEqual(parsed.variant, 1)
+            self.assertEqual([member.size for member in parsed.members], [len(dds), len(model)])
+            # Cada miembro apunta a su propio stream, no a una posición del payload común.
+            self.assertEqual([member.chunk_offset for member in parsed.members][0], 512)
+            self.assertTrue(all(member.chunk_offset for member in parsed.members))
+
+            outer = Entry("por_chunks.", 0, len(data), source, "upak-segment")
+            extract_entries(list_obp_members(outer), SCRATCH)
+            self.assertEqual((output_dir / "texture.dds").read_bytes(), dds)
+            self.assertEqual((output_dir / "model.2").read_bytes(), model)
+        finally:
+            source.unlink(missing_ok=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_splits_the_audio_embedded_in_a_soundbank(self) -> None:
+        first, second = b"RIFF" + bytes(60), b"RIFF" + bytes(28)
+        bank = make_bnk([(1234, first), (5678, second)])
+        data = make_obp([(9, b"combat", bank)])
+
+        source = SCRATCH / "con_banco.upak"
+        output_dir = SCRATCH / "con_banco"
+        try:
+            source.write_bytes(data)
+            outer = Entry("con_banco.", 0, len(data), source, "upak-segment")
+            results = extract_entries(list_obp_members(outer), SCRATCH)
+            # El banco se conserva y el audio sale aparte.
+            self.assertEqual((output_dir / "combat.bnk").read_bytes(), bank)
+            self.assertEqual((output_dir / "combat_wem" / "1234.wem").read_bytes(), first)
+            self.assertEqual((output_dir / "combat_wem" / "5678.wem").read_bytes(), second)
+            self.assertEqual(len(results), 3)
+        finally:
+            source.unlink(missing_ok=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_reports_no_media_for_a_soundbank_that_only_has_events(self) -> None:
+        bank = SCRATCH / "solo_eventos.bnk"
+        try:
+            bank.write_bytes(
+                b"BKHD" + struct.pack("<I", 8) + bytes(8) + b"HIRC" + struct.pack("<I", 4) + bytes(4)
+            )
+            self.assertEqual(parse_bank_media(bank), [])
+        finally:
+            bank.unlink(missing_ok=True)
 
     def test_rejects_a_table_whose_sizes_do_not_match_the_payload(self) -> None:
         data = bytearray(make_obp([(6, b"texture", make_dds())]))

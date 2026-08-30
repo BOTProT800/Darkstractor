@@ -16,6 +16,11 @@ out into the output folder you pick, and the game files are left exactly as they
 - Automatically decompresses Scaleform `.zgfx` resources to `.gfx`.
 - Reads the packages that ship only hashes, with no name table: their members still come out
   split, typed and in order, named `archivo_00000` and upwards.
+- Handles the variant that compresses every member into its own zlib chunk, used by the large
+  packages such as `armor` and `weapons`. Extracting from those seeks straight to the chosen
+  member instead of walking the whole payload.
+- Splits the `.wem` audio embedded in Wwise SoundBanks into a folder next to each `.bnk`, which
+  is kept.
 - When a variant has no usable table, recovers the whole `.bod` through zlib.
 - Recovers the zlib streams of `anim_streams.upak` without depending on offzip.
 - Extracts Wwise AKPK packages (`core.pck`, `en.pck`, `es.pck`) to `.wem`, preserving their IDs
@@ -95,6 +100,7 @@ default, duplicates get a numeric suffix.
 - `anim_streams.upak` → numbered zlib streams; the extension identifiable from the header is
   preserved.
 - `*.pck` → `.wem` and, when the table lists them, `.bnk`.
+- Type 9 → the `.bnk` itself plus `<name>_wem/<id>.wem` with the audio it carries inside.
 - `video` → exact `.bik` and `.sub` copies.
 - `otros` → exact copies of `scripts.obsp` and the world `.bin` files.
 
