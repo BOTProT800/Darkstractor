@@ -29,6 +29,8 @@ from .formats.zlib_stream import (
 )
 from .models import Archive, Entry
 
+#: Recibe bytes leídos del origen, nunca bytes ya descomprimidos: así el
+#: total se puede calcular de antemano con `estimate_source_bytes`.
 Progress = Callable[[int], None]
 Log = Callable[[str], None]
 
@@ -110,6 +112,12 @@ def list_obp_members(entry: Entry) -> list[Entry]:
         raise DarkstractorError("La entrada seleccionada no es un paquete OBP")
     archive = parse_deathinitive_obp(entry.source, base=entry.offset, size=entry.size)
     base_name = entry.name[:-1] if entry.name.endswith(".") else entry.name
+    # En la variante por chunks cada miembro se lee por separado, así que su
+    # coste en bytes de origen es el hueco hasta el chunk siguiente.
+    spans: list[int | None] = [None] * len(archive.members)
+    if archive.variant == VARIANT_CHUNK_PER_MEMBER:
+        edges = [member.chunk_offset or 0 for member in archive.members] + [entry.size]
+        spans = [edges[position + 1] - edges[position] for position in range(len(archive.members))]
     results: list[Entry] = []
     for index, member in enumerate(archive.members):
         extension, kind = obp_member_extension(member.type_id)
@@ -132,6 +140,7 @@ def list_obp_members(entry: Entry) -> list[Entry]:
                     "stream_offset": archive.stream_offset,
                     "compressed_size": archive.compressed_size,
                     "unpacked_size": archive.unpacked_size,
+                    "chunk_span": spans[index],
                 },
             )
         )
@@ -460,6 +469,8 @@ def _extract_obp_member_entries(
                 if not packed:
                     break
                 remaining -= len(packed)
+                if progress:
+                    progress(len(packed))
                 data = decoder.decompress(packed)
                 data_offset = 0
                 while data_offset < len(data):
@@ -482,8 +493,6 @@ def _extract_obp_member_entries(
                             )
                             current_target = current_temp.open("wb")
                         current_target.write(data[data_offset : data_offset + take])
-                        if progress:
-                            progress(take)
                     data_offset += take
                     unpacked_position += take
                     if unpacked_position == member_end:
@@ -705,6 +714,42 @@ def extract_entries(
             results.append(destination)
             log(f"Extraído: {entry.name}")
     return results
+
+
+def estimate_source_bytes(entries: Iterable[Entry]) -> int:
+    """Bytes que se leerán del disco, la unidad que reporta `Progress`.
+
+    No coincide con lo que se escribe: un segmento comprimido se recorre una
+    sola vez aunque produzca decenas de recursos, y de la variante por chunks
+    solo se leen los miembros elegidos.
+    """
+    total = 0
+    whole_segments: set[tuple[Path, int]] = set()
+    for entry in entries:
+        if not entry.kind.startswith("obp-"):
+            total += entry.size
+            continue
+        span = entry.metadata.get("chunk_span")
+        if span is not None:
+            total += int(span)
+            continue
+        key = (entry.source, int(entry.metadata["obp_base"]))
+        if key in whole_segments:
+            continue
+        whole_segments.add(key)
+        total += int(entry.metadata["compressed_size"])
+    return total
+
+
+def estimate_output_bytes(entries: Iterable[Entry], *, auto_unpack: bool) -> int:
+    """Reserva de disco para el resultado, con margen para lo que se expande."""
+    entries = list(entries)
+    total = sum(entry.size for entry in entries)
+    if auto_unpack and any(entry.kind in ("upak-segment", "zlib-all") for entry in entries):
+        # zlib puede expandirse mucho; una reserva conservadora evita llenar el
+        # disco a mitad de la extracción.
+        total *= 3
+    return total
 
 
 def ensure_free_space(output: Path, required: int) -> None:

@@ -12,7 +12,15 @@ from tkinter import filedialog, messagebox, ttk
 
 from .errors import CancelledError, DarkstractorError
 from .models import Archive, Entry
-from .service import ensure_free_space, extract_entries, human_size, list_obp_members, scan_game
+from .service import (
+    ensure_free_space,
+    estimate_output_bytes,
+    estimate_source_bytes,
+    extract_entries,
+    human_size,
+    list_obp_members,
+    scan_game,
+)
 
 DEFAULT_GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition")
 
@@ -28,6 +36,9 @@ class DarkstractorApp(tk.Tk):
         self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self.cancel_event = threading.Event()
         self.worker: threading.Thread | None = None
+        self.progress_lock = threading.Lock()
+        self.progress_done = 0
+        self.progress_total = 0
         self.archives: list[Archive] = []
         self.current_archive: Archive | None = None
         self.current_entries: list[Entry] = []
@@ -216,9 +227,16 @@ class DarkstractorApp(tk.Tk):
         self.back_button.configure(state="disabled" if busy or self.inner_parent is None else "normal")
         self.cancel_button.configure(state="normal" if busy else "disabled")
         if busy:
-            self.progress.start(12)
+            # Con un total conocido la barra avanza de verdad; el análisis, que
+            # no lo tiene, se queda con la marquesina.
+            if self.progress_total:
+                self.progress.configure(mode="determinate", maximum=self.progress_total, value=0)
+            else:
+                self.progress.start(12)
         else:
             self.progress.stop()
+            self.progress_total = 0
+            self.progress.configure(mode="indeterminate", value=0)
         if status:
             self.status_var.set(status)
 
@@ -242,6 +260,22 @@ class DarkstractorApp(tk.Tk):
 
     def _log(self, message: str) -> None:
         self.messages.put(("log", message))
+
+    def _on_progress(self, count: int) -> None:
+        """Corre en el hilo de trabajo: solo suma, nunca toca Tk."""
+        with self.progress_lock:
+            self.progress_done += count
+
+    def _refresh_progress(self) -> None:
+        if not self.progress_total:
+            return
+        with self.progress_lock:
+            done = min(self.progress_done, self.progress_total)
+        self.progress.configure(value=done)
+        self.status_var.set(
+            f"{100 * done / self.progress_total:.1f}%  •  "
+            f"{human_size(done)} de {human_size(self.progress_total)} leídos"
+        )
 
     def _append_log(self, message: str) -> None:
         self.log_window.configure(state="normal")
@@ -352,21 +386,22 @@ class DarkstractorApp(tk.Tk):
 
     def _extract(self, entries: list[Entry]) -> None:
         output = Path(self.output_var.get()).expanduser()
-        estimate = sum(entry.size for entry in entries)
         auto_unpack = self.auto_unpack_var.get()
         collision_policy = self._collision_policy()
-        if auto_unpack and any(entry.kind in ("upak-segment", "zlib-all") for entry in entries):
-            # zlib puede expandirse mucho; una reserva conservadora evita llenar el disco a mitad.
-            estimate *= 3
+        reserve = estimate_output_bytes(entries, auto_unpack=auto_unpack)
+        with self.progress_lock:
+            self.progress_done = 0
+        self.progress_total = estimate_source_bytes(entries)
 
         def task():
-            ensure_free_space(output, estimate)
+            ensure_free_space(output, reserve)
             return extract_entries(
                 entries,
                 output,
                 auto_unpack=auto_unpack,
                 policy=collision_policy,
                 cancel=self.cancel_event,
+                progress=self._on_progress,
                 log=self._log,
             )
 
@@ -402,6 +437,7 @@ class DarkstractorApp(tk.Tk):
                     messagebox.showerror("Darkstractor", str(error))
         except queue.Empty:
             pass
+        self._refresh_progress()
         self.after(100, self._poll_messages)
 
 

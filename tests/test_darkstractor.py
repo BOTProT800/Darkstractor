@@ -15,7 +15,13 @@ from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
 from darkstractor.formats.zlib_stream import declared_size_before, extract_stream, find_next_stream
 from darkstractor.models import Entry
-from darkstractor.service import destination_for, extract_entries, list_obp_members, safe_relative_path
+from darkstractor.service import (
+    destination_for,
+    estimate_source_bytes,
+    extract_entries,
+    list_obp_members,
+    safe_relative_path,
+)
 
 SCRATCH = Path(__file__).parent / ".tmp"
 
@@ -294,6 +300,59 @@ class DeathinitiveObpTests(unittest.TestCase):
                 parse_deathinitive_obp(source)
         finally:
             source.unlink(missing_ok=True)
+
+
+class ProgressEstimateTests(unittest.TestCase):
+    """La barra de progreso mide bytes leídos del origen, no bytes escritos."""
+
+    def test_counts_a_shared_stream_once(self) -> None:
+        data = make_obp([(6, b"texture", make_dds()), (2, b"model", b"MODEL" + bytes(64))])
+        source = SCRATCH / "estimacion.upak"
+        try:
+            source.write_bytes(data)
+            outer = Entry("estimacion.", 0, len(data), source, "upak-segment")
+            members = list_obp_members(outer)
+            compressed = int(members[0].metadata["compressed_size"])
+            # Los dos miembros salen de la misma pasada: el coste no se duplica,
+            # y pedir solo uno no la abarata.
+            self.assertEqual(estimate_source_bytes(members), compressed)
+            self.assertEqual(estimate_source_bytes(members[:1]), compressed)
+        finally:
+            source.unlink(missing_ok=True)
+
+    def test_counts_only_the_chunks_selected(self) -> None:
+        data = make_obp(
+            [(6, b"texture", make_dds()), (2, b"model", b"MODEL" + bytes(2048))], variant=1
+        )
+        source = SCRATCH / "estimacion_chunks.upak"
+        try:
+            source.write_bytes(data)
+            outer = Entry("estimacion_chunks.", 0, len(data), source, "upak-segment")
+            members = list_obp_members(outer)
+            spans = [int(member.metadata["chunk_span"]) for member in members]
+            self.assertEqual(estimate_source_bytes(members), sum(spans))
+            self.assertEqual(estimate_source_bytes(members[1:]), spans[1])
+            self.assertLess(spans[1], sum(spans))
+        finally:
+            source.unlink(missing_ok=True)
+
+    def test_progress_stays_within_the_estimate(self) -> None:
+        # El modelo se comprime muchísimo: si el progreso contara bytes ya
+        # descomprimidos, aquí se saldría de la barra.
+        data = make_obp([(6, b"texture", make_dds()), (2, b"model", b"MODEL" + bytes(4096))])
+        source = SCRATCH / "progreso.upak"
+        output_dir = SCRATCH / "progreso"
+        try:
+            source.write_bytes(data)
+            outer = Entry("progreso.", 0, len(data), source, "upak-segment")
+            members = list_obp_members(outer)
+            reported: list[int] = []
+            extract_entries(members, SCRATCH, progress=reported.append)
+            self.assertTrue(reported)
+            self.assertLessEqual(sum(reported), estimate_source_bytes(members))
+        finally:
+            source.unlink(missing_ok=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

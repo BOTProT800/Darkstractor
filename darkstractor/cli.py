@@ -9,7 +9,14 @@ from pathlib import Path
 from . import __version__
 from .errors import DarkstractorError
 from .gui import DEFAULT_GAME
-from .service import extract_entries, human_size, list_obp_members, scan_game
+from .service import (
+    ensure_free_space,
+    estimate_output_bytes,
+    extract_entries,
+    human_size,
+    list_obp_members,
+    scan_game,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             selected = inner
             if not selected:
                 parser.error("ningún recurso interno coincide con --inner-filter")
+        ensure_free_space(args.output, estimate_output_bytes(selected, auto_unpack=not args.raw))
         results = extract_entries(
             selected,
             args.output,

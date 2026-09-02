@@ -12,6 +12,8 @@ from typing import Callable
 
 from ..errors import CancelledError, FormatError
 
+#: Recibe bytes leídos del archivo de origen, nunca bytes ya
+#: descomprimidos: el total se conoce antes de empezar.
 Progress = Callable[[int], None]
 
 
@@ -95,13 +97,13 @@ def extract_stream(
                 output = decoder.decompress(chunk)
                 consumed = len(chunk) - len(decoder.unused_data)
                 compressed_read += consumed
+                if progress:
+                    progress(consumed)
                 if output:
                     if not magic:
                         magic = output[:16]
                     target.write(output)
                     unpacked += len(output)
-                    if progress:
-                        progress(len(output))
                 if decoder.unused_data:
                     break
             if not decoder.eof:
@@ -112,8 +114,6 @@ def extract_stream(
                     magic = output[:16]
                 target.write(output)
                 unpacked += len(output)
-                if progress:
-                    progress(len(output))
             target.flush()
             os.fsync(target.fileno())
         if expected_size is not None and expected_size > 0 and unpacked != expected_size:
