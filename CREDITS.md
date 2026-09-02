@@ -74,6 +74,26 @@ License conflicts with no external license in the current state of the tree.
 - **What it gave us:** they are the recommended route for interpreting the `.wem` files that
   Darkstractor extracts, a task this project does not cover.
 
+### GitHub Actions: `actions/checkout` and `actions/setup-python`
+
+- **Author(s):** GitHub, Inc.
+- **Source:** https://github.com/actions/checkout and https://github.com/actions/setup-python
+  (pinned at `v4` and `v5` respectively in
+  [.github/workflows/tests.yml](.github/workflows/tests.yml))
+- **License:** declared as MIT in each upstream repository. **Needs verification** against those
+  `LICENSE` files before any of their code is ever copied here.
+- **Verified in:** nothing verifiable in the repo. Only the two `uses:` lines of the workflow
+  reference them; no copy of their code or license exists in this tree.
+- **Redistribution:** **No.** They run on GitHub's infrastructure during CI. Nothing from them is
+  tracked here, and they do not ship with Darkstractor.
+- **Added:** 2026-08-31
+- **Where it is used:** [.github/workflows/tests.yml](.github/workflows/tests.yml)
+- **Use:** invoked as CI steps. Not consulted as a reference and not adapted.
+- **Modified?:** No.
+- **What it gave us:** they check out the repository and install the Python matrix (3.10 to 3.13)
+  on which the test suite runs. They touch none of Darkstractor's code and impose no obligation
+  on what it distributes, since the released artifact never contains them.
+
 ## Adapted code
 
 **None in the current tree.** Not a single line in the repository is copied or adapted from a
