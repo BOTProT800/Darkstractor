@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--inner-filter", help="extraer solo miembros internos que contengan este texto")
     extract.add_argument("--raw", action="store_true", help="no descomprimir los segmentos OBP")
     extract.add_argument("--overwrite", action="store_true")
+    extract.add_argument(
+        "--skip-space-check",
+        action="store_true",
+        help="extraer sin comprobar el espacio libre (la reserva es pesimista)",
+    )
 
     return parser
 
@@ -100,7 +105,18 @@ def main(argv: list[str] | None = None) -> int:
             selected = inner
             if not selected:
                 parser.error("ningún recurso interno coincide con --inner-filter")
-        ensure_free_space(args.output, estimate_output_bytes(selected, auto_unpack=not args.raw))
+        if not args.skip_space_check:
+            try:
+                ensure_free_space(
+                    args.output, estimate_output_bytes(selected, auto_unpack=not args.raw)
+                )
+            except DarkstractorError as exc:
+                # La reserva multiplica por 3 lo empaquetado porque zlib puede
+                # expandirse mucho. Es deliberadamente pesimista, así que tiene
+                # que poder ignorarse en vez de bloquear una extracción viable.
+                raise DarkstractorError(
+                    f"{exc}. Añade --skip-space-check para extraer de todas formas"
+                ) from exc
         results = extract_entries(
             selected,
             args.output,

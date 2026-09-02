@@ -257,10 +257,18 @@ class DarkstractorApp(tk.Tk):
         if status:
             self.status_var.set(status)
 
-    def _start_worker(self, target, success_message: str) -> None:
+    def _start_worker(self, target, success_message: str, *, total: int = 0) -> bool:
+        """Arranca el hilo de trabajo; devuelve False si ya había uno vivo.
+
+        El estado del progreso se fija aquí, pasada la guarda, para que un
+        arranque rechazado no pise el de la operación que sigue en curso.
+        """
         if self.worker and self.worker.is_alive():
-            return
+            return False
         self.cancel_event.clear()
+        with self.progress_lock:
+            self.progress_done = 0
+        self.progress_total = total
         self._set_busy(True)
 
         def run() -> None:
@@ -274,6 +282,7 @@ class DarkstractorApp(tk.Tk):
 
         self.worker = threading.Thread(target=run, daemon=True)
         self.worker.start()
+        return True
 
     def _log(self, message: str) -> None:
         self.messages.put(("log", message))
@@ -418,9 +427,6 @@ class DarkstractorApp(tk.Tk):
         auto_unpack = self.auto_unpack_var.get()
         collision_policy = self._collision_policy()
         reserve = estimate_output_bytes(entries, auto_unpack=auto_unpack)
-        with self.progress_lock:
-            self.progress_done = 0
-        self.progress_total = estimate_source_bytes(entries)
 
         def task():
             ensure_free_space(output, reserve)
@@ -434,8 +440,10 @@ class DarkstractorApp(tk.Tk):
                 log=self._log,
             )
 
-        self._start_worker(task, "Extracción terminada")
-        self.status_var.set(f"Procesando {len(entries):,} entradas…")
+        if self._start_worker(
+            task, "Extracción terminada", total=estimate_source_bytes(entries)
+        ):
+            self.status_var.set(f"Procesando {len(entries):,} entradas…")
 
     def cancel(self) -> None:
         self.cancel_event.set()

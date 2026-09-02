@@ -62,7 +62,7 @@ EXECUTABLE_NAME = "Darksiders2.exe"
 
 
 def looks_like_game(game_root: Path) -> bool:
-    """Comprobación barata previa a `scan_game`, sin leer nada del disco duro.
+    """Comprobación barata previa a `scan_game`: dos `stat`, sin abrir nada.
 
     Permite decidir si merece la pena analizar antes de molestar al usuario con
     un diálogo de error.
