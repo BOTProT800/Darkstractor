@@ -39,6 +39,10 @@ python run_darkstractor.py
 
 On Windows you can also double-click `Darkstractor.pyw` to start without an extra console.
 
+If you would rather not install Python at all, tagged releases publish a standalone
+`Darkstractor.exe` built from [darkstractor.spec](darkstractor.spec). While no release has been
+cut, run from source as above.
+
 The default path already points to:
 
 ```text

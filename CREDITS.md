@@ -74,12 +74,14 @@ License conflicts with no external license in the current state of the tree.
 - **What it gave us:** they are the recommended route for interpreting the `.wem` files that
   Darkstractor extracts, a task this project does not cover.
 
-### GitHub Actions: `actions/checkout` and `actions/setup-python`
+### GitHub Actions: `actions/checkout`, `actions/setup-python`, `actions/upload-artifact`
 
 - **Author(s):** GitHub, Inc.
-- **Source:** https://github.com/actions/checkout and https://github.com/actions/setup-python
-  (pinned at `v4` and `v5` respectively in
-  [.github/workflows/tests.yml](.github/workflows/tests.yml))
+- **Source:** https://github.com/actions/checkout, https://github.com/actions/setup-python and
+  https://github.com/actions/upload-artifact (pinned at `v4`, `v5` and `v4` in
+  [.github/workflows/tests.yml](.github/workflows/tests.yml) and
+  [.github/workflows/release.yml](.github/workflows/release.yml)). The release workflow also
+  calls the GitHub CLI (`gh`), which comes preinstalled on the runner image.
 - **License:** declared as MIT in each upstream repository. **Needs verification** against those
   `LICENSE` files before any of their code is ever copied here.
 - **Verified in:** nothing verifiable in the repo. Only the two `uses:` lines of the workflow
@@ -87,12 +89,36 @@ License conflicts with no external license in the current state of the tree.
 - **Redistribution:** **No.** They run on GitHub's infrastructure during CI. Nothing from them is
   tracked here, and they do not ship with Darkstractor.
 - **Added:** 2026-08-31
-- **Where it is used:** [.github/workflows/tests.yml](.github/workflows/tests.yml)
+- **Where it is used:** [.github/workflows/tests.yml](.github/workflows/tests.yml) and
+  [.github/workflows/release.yml](.github/workflows/release.yml)
 - **Use:** invoked as CI steps. Not consulted as a reference and not adapted.
 - **Modified?:** No.
 - **What it gave us:** they check out the repository and install the Python matrix (3.10 to 3.13)
   on which the test suite runs. They touch none of Darkstractor's code and impose no obligation
   on what it distributes, since the released artifact never contains them.
+
+### PyInstaller
+
+- **Author(s):** the PyInstaller Development Team.
+- **Source:** https://github.com/pyinstaller/pyinstaller
+- **License:** **GPL-2.0-or-later WITH a bootloader exception — needs verification** against the
+  `COPYING.txt` of the exact version the workflow installs. The exception is what allows the
+  bootloader to be linked into an application that is not GPL; without it, shipping the
+  executable would drag Darkstractor into the GPL. This has to be confirmed, not assumed.
+- **Verified in:** nothing verifiable in the repo. PyInstaller is not tracked here; it is
+  installed by [.github/workflows/release.yml](.github/workflows/release.yml) at build time.
+- **Redistribution:** **Not in the repository.** But the `Darkstractor.exe` the recipe produces
+  **embeds PyInstaller's bootloader and the CPython runtime**. Publishing that file is
+  redistributing third-party binaries, so before any release is cut, the licenses of those
+  components must accompany it and the exact source release of each must be stated. See
+  [Open compliance obligations](#open-compliance-obligations), point 5.
+- **Added:** 2026-09-02
+- **Where it is used:** [darkstractor.spec](darkstractor.spec) and
+  [.github/workflows/release.yml](.github/workflows/release.yml)
+- **Use:** invoked as a build tool. No line of its code is copied or adapted.
+- **Modified?:** No.
+- **What it gave us:** a single-file Windows executable, so the tool reaches people who do not
+  have Python installed. Nothing in Darkstractor imports it or depends on it at runtime.
 
 ## Adapted code
 
@@ -290,3 +316,10 @@ entry moves here, dated, when the material it describes stops being used.
    dragging in components from other projects (FFmpeg DLLs, say) under their own license. If a
    packaged tool is ever tracked, its contents must be reviewed component by component and each
    one given its own notice.
+5. **The Windows executable is not cleared yet.** The build recipe exists
+   ([darkstractor.spec](darkstractor.spec)) but **no binary has been published**. The `.exe`
+   bundles PyInstaller's bootloader and the CPython runtime, which is the exact situation point 4
+   describes. Before the first release: confirm PyInstaller's bootloader exception in the
+   `COPYING.txt` of the version being used, ship the PSF license for the bundled CPython and
+   PyInstaller's own notice alongside the download, and state which release of each was used.
+   Adding the recipe imposes nothing; publishing the binary does.

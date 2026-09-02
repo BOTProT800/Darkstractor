@@ -1,0 +1,64 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Una etiqueta no debería poder publicar un binario de un árbol roto.
+  verificar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+
+  windows:
+    needs: verificar
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar las herramientas de empaquetado
+        run: python -m pip install --upgrade build pyinstaller
+
+      - name: Construir la rueda
+        run: python -m build --wheel --sdist
+
+      - name: Construir el ejecutable
+        run: python -m PyInstaller --noconfirm darkstractor.spec
+
+      - name: Comprobar que el ejecutable existe y pesa algo razonable
+        run: |
+          $exe = Get-Item dist/Darkstractor.exe
+          $mb = [math]::Round($exe.Length / 1MB, 1)
+          Write-Output "Darkstractor.exe: $mb MB"
+          if ($exe.Length -lt 5MB) { throw "El ejecutable pesa $mb MB: el bundle parece incompleto" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Darkstractor-windows
+          path: |
+            dist/Darkstractor.exe
+            dist/*.whl
+            dist/*.tar.gz
+
+      - name: Publicar la release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$env:GITHUB_REF_NAME"
+          dist/Darkstractor.exe dist/*.whl dist/*.tar.gz
+          --title "Darkstractor $env:GITHUB_REF_NAME"
+          --generate-notes
