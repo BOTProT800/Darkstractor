@@ -22,11 +22,13 @@ from darkstractor.formats.zlib_stream import (
     find_next_stream,
 )
 from darkstractor.models import Entry
+from darkstractor.settings import load_settings, save_settings
 from darkstractor.service import (
     destination_for,
     estimate_source_bytes,
     extract_entries,
     list_obp_members,
+    looks_like_game,
     safe_relative_path,
 )
 
@@ -469,6 +471,52 @@ class HeaderScanTests(unittest.TestCase):
         ]
         self.assertEqual([match.start() for match in _HEADER_PATTERN.finditer(data)], expected)
         self.assertTrue(any(b - a == 1 for a, b in zip(expected, expected[1:])))
+
+
+class SettingsTests(unittest.TestCase):
+    """Las preferencias nunca pueden impedir que la aplicación arranque."""
+
+    def setUp(self) -> None:
+        self.config = SCRATCH / "config.json"
+
+    def tearDown(self) -> None:
+        self.config.unlink(missing_ok=True)
+
+    def test_round_trip_drops_unknown_keys(self) -> None:
+        save_settings(
+            {"game": "C:/juego", "collision": "Omitir", "inyectado": "no deberia sobrevivir"},
+            self.config,
+        )
+        self.assertEqual(load_settings(self.config), {"game": "C:/juego", "collision": "Omitir"})
+
+    def test_a_missing_file_is_not_an_error(self) -> None:
+        self.assertEqual(load_settings(SCRATCH / "no_existe.json"), {})
+
+    def test_a_corrupt_file_is_not_an_error(self) -> None:
+        self.config.write_text("{esto no es json", encoding="utf-8")
+        self.assertEqual(load_settings(self.config), {})
+
+    def test_a_json_that_is_not_an_object_is_ignored(self) -> None:
+        self.config.write_text("[1, 2, 3]", encoding="utf-8")
+        self.assertEqual(load_settings(self.config), {})
+
+
+class GameDetectionTests(unittest.TestCase):
+    def test_requires_both_the_manifest_and_the_executable(self) -> None:
+        root = SCRATCH / "instalacion"
+        try:
+            (root / "media").mkdir(parents=True, exist_ok=True)
+            self.assertFalse(looks_like_game(root))
+            (root / "media" / "manifest.bin").write_bytes(b"x")
+            # Solo con el manifiesto todavía no basta: podría ser otro juego.
+            self.assertFalse(looks_like_game(root))
+            (root / "Darksiders2.exe").write_bytes(b"x")
+            self.assertTrue(looks_like_game(root))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_a_path_that_does_not_exist_is_not_the_game(self) -> None:
+        self.assertFalse(looks_like_game(SCRATCH / "ni_existe"))
 
 
 if __name__ == "__main__":

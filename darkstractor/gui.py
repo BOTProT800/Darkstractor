@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .errors import CancelledError, DarkstractorError
 from .models import Archive, Entry
+from .settings import load_settings, save_settings
 from .service import (
     ensure_free_space,
     estimate_output_bytes,
@@ -19,10 +20,13 @@ from .service import (
     extract_entries,
     human_size,
     list_obp_members,
+    looks_like_game,
     scan_game,
 )
 
 DEFAULT_GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition")
+
+COLLISION_POLICIES = {"Renombrar": "rename", "Omitir": "skip", "Sobrescribir": "overwrite"}
 
 
 class DarkstractorApp(tk.Tk):
@@ -45,20 +49,33 @@ class DarkstractorApp(tk.Tk):
         self.inner_parent: Entry | None = None
         self.visible_entries: list[Entry] = []
 
-        default_output = Path.cwd() / "extraccion"
-        self.game_var = tk.StringVar(value=str(DEFAULT_GAME if DEFAULT_GAME.exists() else Path.cwd()))
-        self.output_var = tk.StringVar(value=str(default_output))
+        saved = load_settings()
+        collision = str(saved.get("collision") or "")
+        self.game_var = tk.StringVar(
+            value=str(saved.get("game") or (DEFAULT_GAME if DEFAULT_GAME.exists() else Path.cwd()))
+        )
+        self.output_var = tk.StringVar(value=str(saved.get("output") or Path.cwd() / "extraccion"))
         self.filter_var = tk.StringVar()
-        self.auto_unpack_var = tk.BooleanVar(value=True)
-        self.collision_var = tk.StringVar(value="Renombrar")
+        self.auto_unpack_var = tk.BooleanVar(value=bool(saved.get("auto_unpack", True)))
+        self.collision_var = tk.StringVar(
+            value=collision if collision in COLLISION_POLICIES else "Renombrar"
+        )
         self.status_var = tk.StringVar(value="Selecciona la instalación y pulsa Analizar")
         self.summary_var = tk.StringVar(value="Sin analizar")
 
         self._configure_styles()
         self._build_ui()
         self.filter_var.trace_add("write", lambda *_: self.after(180, self._refresh_entries))
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._poll_messages)
-        self.after(250, self.scan)
+        # Analizar a ciegas recibía al usuario con un diálogo de error cuando el
+        # juego no estaba en la ruta por defecto.
+        if looks_like_game(Path(self.game_var.get())):
+            self.after(250, self.scan)
+        else:
+            self.status_var.set(
+                "No se encontró el juego ahí: elige la carpeta de la instalación y pulsa Analizar"
+            )
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self)
@@ -364,7 +381,19 @@ class DarkstractorApp(tk.Tk):
         self._refresh_entries()
 
     def _collision_policy(self) -> str:
-        return {"Renombrar": "rename", "Omitir": "skip", "Sobrescribir": "overwrite"}[self.collision_var.get()]
+        return COLLISION_POLICIES[self.collision_var.get()]
+
+    def _on_close(self) -> None:
+        self.cancel_event.set()
+        save_settings(
+            {
+                "game": self.game_var.get(),
+                "output": self.output_var.get(),
+                "auto_unpack": self.auto_unpack_var.get(),
+                "collision": self.collision_var.get(),
+            }
+        )
+        self.destroy()
 
     def extract_selected(self) -> None:
         selected = self.entry_tree.selection()

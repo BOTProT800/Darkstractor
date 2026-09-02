@@ -56,6 +56,20 @@ OBP_TYPE_INFO: dict[int, tuple[str, str]] = {
 }
 
 
+#: Lo que tiene que haber para que una carpeta sea una instalación utilizable.
+MANIFEST_RELATIVE = Path("media") / "manifest.bin"
+EXECUTABLE_NAME = "Darksiders2.exe"
+
+
+def looks_like_game(game_root: Path) -> bool:
+    """Comprobación barata previa a `scan_game`, sin leer nada del disco duro.
+
+    Permite decidir si merece la pena analizar antes de molestar al usuario con
+    un diálogo de error.
+    """
+    return (game_root / MANIFEST_RELATIVE).is_file() and (game_root / EXECUTABLE_NAME).is_file()
+
+
 def human_size(value: int) -> str:
     amount = float(value)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -148,10 +162,10 @@ def list_obp_members(entry: Entry) -> list[Entry]:
 
 def scan_game(game_root: Path) -> list[Archive]:
     media = game_root / "media"
-    manifest = media / "manifest.bin"
+    manifest = game_root / MANIFEST_RELATIVE
     if not manifest.is_file():
         raise DarkstractorError(f"No se encontró media\\manifest.bin en {game_root}")
-    if not (game_root / "Darksiders2.exe").is_file():
+    if not (game_root / EXECUTABLE_NAME).is_file():
         raise DarkstractorError("La carpeta no parece una instalación de Darksiders II Deathinitive Edition")
 
     archives: list[Archive] = []
