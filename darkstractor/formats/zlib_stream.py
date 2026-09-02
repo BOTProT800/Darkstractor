@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import os
+import re
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
-from typing import Callable
+from typing import BinaryIO, Callable
 
 from ..errors import CancelledError, FormatError
 
@@ -29,16 +30,53 @@ def _looks_like_header(first: int, second: int) -> bool:
     return (first & 0x0F) == 8 and (first >> 4) <= 7 and ((first << 8) + second) % 31 == 0
 
 
-def _probe(path: Path, offset: int, end: int) -> tuple[bytes, bool]:
-    with path.open("rb") as file:
-        file.seek(offset)
-        data = file.read(min(128 * 1024, end - offset))
+def _header_pattern() -> "re.Pattern[bytes]":
+    """Compila la regla de `_looks_like_header` para barrer en C, no en Python.
+
+    Comprobar el par byte a byte costaba más que descomprimir: barrer los
+    471 MB de `anim_streams.upak` son cientos de millones de iteraciones del
+    intérprete. El patrón se deriva de la propia función para que las dos no
+    puedan divergir, y es un lookahead de ancho cero porque el bucle original
+    sí encontraba cabeceras solapadas y una alternancia normal las perdería.
+    """
+    alternatives = []
+    for first in range(256):
+        seconds = bytes(second for second in range(256) if _looks_like_header(first, second))
+        if seconds:
+            alternatives.append(re.escape(bytes([first])) + b"[" + re.escape(seconds) + b"]")
+    return re.compile(b"(?=" + b"|".join(alternatives) + b")", re.DOTALL)
+
+
+_HEADER_PATTERN = _header_pattern()
+
+
+#: Bytes que se le dan a zlib para decidir si una cabecera candidata abre un
+#: stream de verdad. De sobra: basta con obtener un byte descomprimido.
+PROBE_BYTES = 128 * 1024
+
+
+def _probe_bytes(data: bytes) -> bool:
+    """¿Empiezan estos bytes un stream zlib real, y no un falso positivo?"""
     try:
         decoder = zlib.decompressobj()
         output = decoder.decompress(data, 64)
-        return output, bool(output or decoder.eof)
     except zlib.error:
-        return b"", False
+        return False
+    return bool(output or decoder.eof)
+
+
+def _probe(file: BinaryIO, offset: int, end: int) -> bool:
+    """Sondea desde el disco reutilizando el descriptor ya abierto.
+
+    Abrir el archivo por candidato costaba una llamada al sistema por cada
+    cabecera aparente, y en un barrido completo hay cientos de miles.
+    """
+    position = file.tell()
+    try:
+        file.seek(offset)
+        return _probe_bytes(file.read(min(PROBE_BYTES, end - offset)))
+    finally:
+        file.seek(position)
 
 
 def find_next_stream(path: Path, start: int, end: int, *, scan_limit: int | None = None) -> int | None:
@@ -56,12 +94,19 @@ def find_next_stream(path: Path, start: int, end: int, *, scan_limit: int | None
                 break
             data = carry + block
             origin = cursor - len(carry)
-            for index in range(max(0, len(carry) - 1), len(data) - 1):
-                if _looks_like_header(data[index], data[index + 1]):
-                    candidate = origin + index
-                    _, valid = _probe(path, candidate, end)
-                    if valid:
-                        return candidate
+            for match in _HEADER_PATTERN.finditer(data, max(0, len(carry) - 1)):
+                index = match.start()
+                candidate = origin + index
+                # `data` nunca pasa de `scan_end`, así que lo que ya está en
+                # memoria es exactamente lo que leería el sondeo del disco.
+                # Solo los candidatos del final del bloque bajan a leer.
+                window = data[index : index + PROBE_BYTES]
+                if len(window) >= min(PROBE_BYTES, end - candidate):
+                    valid = _probe_bytes(window)
+                else:
+                    valid = _probe(file, candidate, end)
+                if valid:
+                    return candidate
             carry = data[-1:]
             cursor += len(block)
     return None
