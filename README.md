@@ -117,6 +117,10 @@ default, duplicates get a numeric suffix.
 python -m unittest discover -s tests -v
 ```
 
+## Changelog
+
+Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Credits
 
 This repository distributes no third-party code or binaries: everything tracked here is original

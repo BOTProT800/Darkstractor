@@ -1,16 +1,50 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "darkstractor"
-version = "0.4.0"
 description = "Extractor gráfico en Python para Darksiders II Deathinitive Edition"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "BOTProT800" }]
+keywords = ["darksiders", "upak", "obpk", "akpk", "wwise", "extractor", "modding"]
+# Solo biblioteca estándar, a propósito: ni QuickBMS, ni offzip, ni paquetes de PyPI.
 dependencies = []
+dynamic = ["version"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Spanish",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment",
+    "Topic :: System :: Archiving :: Compression",
+]
+
+[project.urls]
+Homepage = "https://github.com/BOTProT800/Darkstractor"
+Repository = "https://github.com/BOTProT800/Darkstractor"
+Issues = "https://github.com/BOTProT800/Darkstractor/issues"
+Changelog = "https://github.com/BOTProT800/Darkstractor/blob/main/CHANGELOG.md"
 
 [project.scripts]
 darkstractor = "darkstractor.cli:main"
+
+[project.gui-scripts]
+darkstractor-gui = "darkstractor.gui:main"
+
+[tool.setuptools.dynamic]
+# Única fuente de verdad: la versión vive en el paquete, no duplicada aquí.
+version = { attr = "darkstractor.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["darkstractor*"]
