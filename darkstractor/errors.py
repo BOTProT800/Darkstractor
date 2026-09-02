@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 BOTProT800
+# SPDX-License-Identifier: MIT
+
 class DarkstractorError(Exception):
     """Error esperado que puede mostrarse directamente al usuario."""
 

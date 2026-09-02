@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 BOTProT800
+# SPDX-License-Identifier: MIT
+
 from __future__ import annotations
 
 import argparse
