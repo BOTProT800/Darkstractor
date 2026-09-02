@@ -17,10 +17,6 @@ class Entry:
     packed_size: int | None = None
     metadata: dict[str, object] = field(default_factory=dict)
 
-    @property
-    def display_size(self) -> int:
-        return self.size
-
 
 @dataclass(slots=True)
 class Archive:

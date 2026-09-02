@@ -13,7 +13,14 @@ from darkstractor.errors import FormatError
 from darkstractor.formats.akpk import parse_akpk
 from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
-from darkstractor.formats.zlib_stream import declared_size_before, extract_stream, find_next_stream
+from darkstractor.formats.manifest import parse_manifest
+from darkstractor.formats.zlib_stream import (
+    _HEADER_PATTERN,
+    _looks_like_header,
+    declared_size_before,
+    extract_stream,
+    find_next_stream,
+)
 from darkstractor.models import Entry
 from darkstractor.service import (
     destination_for,
@@ -113,6 +120,35 @@ def make_obp(members: list[tuple[int, bytes, bytes]], *, named: bool = True, var
     result = header + table
     result += bytes(payload_offset - len(result))
     return result + payload + bytes(0 if variant == 1 else 128)
+
+
+def make_manifest(
+    paths: list[bytes],
+    packs: list[bytes],
+    assets: list[tuple[bytes, int, int, int]],
+    *,
+    version: int = 0x0D,
+) -> bytes:
+    """`manifest.bin` sintético.
+
+    Cada recurso es ``(nombre, índice de ruta, índice de paquete, offset)``.
+    Desde la versión 0x0D los offsets son de 64 bits, que es lo que trae
+    Deathinitive; por debajo son de 32.
+    """
+    data = bytearray(struct.pack("<I", version) + bytes(4 * 10))
+    data += struct.pack("<II", len(paths), 0)
+    for name in paths:
+        data += struct.pack("<QI", 0, len(name)) + name
+    data += struct.pack("<I", len(packs))
+    for pack in packs:
+        data += struct.pack("<BH", 0, len(pack)) + pack
+    data += struct.pack("<I", len(assets))
+    for filename, path_index, pack_index, offset in assets:
+        data += struct.pack("<B", len(filename)) + filename
+        data += struct.pack("<QHH", 0, 0, path_index)
+        data += struct.pack("<BBBBB", 0, 0, pack_index, 0, 0)
+        data += struct.pack("<Q" if version >= 0x0D else "<I", offset)
+    return bytes(data)
 
 
 class PathSafetyTests(unittest.TestCase):
@@ -353,6 +389,86 @@ class ProgressEstimateTests(unittest.TestCase):
         finally:
             source.unlink(missing_ok=True)
             shutil.rmtree(output_dir, ignore_errors=True)
+
+
+class ManifestTests(unittest.TestCase):
+    """`manifest.bin` es la puerta de entrada de todo `scan_game`."""
+
+    def setUp(self) -> None:
+        self.media = SCRATCH / "media_manifest"
+        self.media.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.media, ignore_errors=True)
+
+    def _write(self, data: bytes, pack_size: int = 4096) -> Path:
+        (self.media / "media.upak").write_bytes(bytes(pack_size))
+        manifest = self.media / "manifest.bin"
+        manifest.write_bytes(data)
+        return manifest
+
+    def test_reads_64_bit_offsets_and_derives_sizes(self) -> None:
+        manifest = self._write(
+            make_manifest(
+                [b"textures", b""],
+                [b"media"],
+                [
+                    (b"hero", 0, 0, 0),
+                    (b"sky", 0, 0, 1024),
+                    (b"suelto", 1, 0, 3072),
+                    # 0xFF marca un recurso que no vive en ningún paquete.
+                    (b"fantasma", 0, 0xFF, 0),
+                ],
+            )
+        )
+        entries = parse_manifest(manifest, self.media)
+        self.assertEqual(
+            [entry.name for entry in entries],
+            ["media/textures/hero.", "media/textures/sky.", "media/suelto."],
+        )
+        # El tamaño sale del offset siguiente, y el último llega al final del .upak.
+        self.assertEqual([entry.size for entry in entries], [1024, 2048, 1024])
+        self.assertTrue(all(entry.kind == "upak-segment" for entry in entries))
+
+    def test_reads_32_bit_offsets_on_older_versions(self) -> None:
+        manifest = self._write(
+            make_manifest([b"ui"], [b"media"], [(b"boton", 0, 0, 512)], version=0x0C)
+        )
+        entries = parse_manifest(manifest, self.media)
+        self.assertEqual([(entry.name, entry.offset) for entry in entries], [("media/ui/boton.", 512)])
+
+    def test_rejects_an_index_outside_the_tables(self) -> None:
+        manifest = self._write(make_manifest([b"ui"], [b"media"], [(b"boton", 9, 0, 0)]))
+        with self.assertRaises(FormatError):
+            parse_manifest(manifest, self.media)
+
+    def test_ignores_packs_that_are_not_installed(self) -> None:
+        manifest = self._write(make_manifest([b"ui"], [b"ausente"], [(b"boton", 0, 0, 0)]))
+        self.assertEqual(parse_manifest(manifest, self.media), [])
+
+
+class HeaderScanTests(unittest.TestCase):
+    def test_the_compiled_pattern_matches_the_reference_rule(self) -> None:
+        """El barrido rápido debe encontrar exactamente lo mismo que la regla."""
+        # Tres bytes que abren dos cabeceras solapadas: una alternancia sin
+        # lookahead consumiría la primera y se comería la segunda.
+        overlapping = next(
+            bytes([first, middle, third])
+            for first in range(256)
+            for middle in range(256)
+            if _looks_like_header(first, middle)
+            for third in range(256)
+            if _looks_like_header(middle, third)
+        )
+        data = bytes((index * 37 + index // 251) % 256 for index in range(60_000))
+        data += overlapping + zlib.compress(b"carga" * 500, 9) + bytes(64)
+        expected = [
+            index
+            for index in range(len(data) - 1)
+            if _looks_like_header(data[index], data[index + 1])
+        ]
+        self.assertEqual([match.start() for match in _HEADER_PATTERN.finditer(data)], expected)
+        self.assertTrue(any(b - a == 1 for a, b in zip(expected, expected[1:])))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,6 @@ from .formats.bnk import parse_bank_media
 from .formats.deathinitive_obp import (
     VARIANT_CHUNK_PER_MEMBER,
     DeathinitiveObp,
-    ObpMember,
     parse_deathinitive_obp,
 )
 from .formats.manifest import parse_manifest
