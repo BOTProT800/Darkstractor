@@ -106,7 +106,8 @@ default, duplicates get a numeric suffix.
 - `*.pck` → `.wem` and, when the table lists them, `.bnk`.
 - Type 9 → the `.bnk` itself plus `<name>_wem/<id>.wem` with the audio it carries inside.
 - `video` → exact `.bik` and `.sub` copies.
-- `otros` → exact copies of `scripts.obsp` and the world `.bin` files.
+- `scripts.obsp`, `worlds.bin`, `worldnodes32.bin`, `worldnodes64.bin` → exact copies; each one
+  is listed as its own container, under its real name.
 
 ## Known limitations
 

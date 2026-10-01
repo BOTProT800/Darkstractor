@@ -198,12 +198,10 @@ def scan_game(game_root: Path) -> list[Archive]:
     if videos:
         archives.append(Archive("video", video_dir, "loose", videos, "Vídeos Bink y subtítulos"))
 
-    misc: list[Entry] = []
     for pattern in ("scripts.obsp", "world*.bin"):
         for item in sorted(media.glob(pattern)):
-            misc.append(Entry(f"misc/{item.name}", 0, item.stat().st_size, item, item.suffix.lower().lstrip(".")))
-    if misc:
-        archives.append(Archive("otros", media, "loose", misc, "Scripts y datos auxiliares (copia sin conversión)"))
+            entry = Entry(item.name, 0, item.stat().st_size, item, item.suffix.lower().lstrip("."))
+            archives.append(Archive(item.name, item, "loose", [entry], "Archivo suelto de media (copia sin conversión)"))
     return archives
 
 

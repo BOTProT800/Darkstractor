@@ -38,6 +38,9 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
   default Steam path: it says what to do instead.
 - The version now lives only in `darkstractor/__init__.py`; `pyproject.toml` reads it from there
   so the two cannot drift.
+- `scripts.obsp` and the world `.bin` files are no longer grouped under an invented `otros`
+  container with a `misc/` prefix: each one is listed as its own container with its real name,
+  and it is extracted to the root of the output folder, as it sits in the game's `media\`.
 
 ### Fixed
 
