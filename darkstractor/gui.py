@@ -312,7 +312,7 @@ class DarkstractorApp(tk.Tk):
     def scan(self) -> None:
         game = Path(self.game_var.get()).expanduser()
         self._start_worker(lambda: scan_game(game), "Análisis terminado")
-        self.status_var.set("Leyendo manifest.bin y tablas de audio…")
+        self.status_var.set("Leyendo manifest.bin…")
 
     def _load_archives(self, archives: list[Archive]) -> None:
         self.archives = archives

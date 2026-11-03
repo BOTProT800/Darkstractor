@@ -23,8 +23,6 @@ out into the output folder you pick, and the game files are left exactly as they
   is kept.
 - When a variant has no usable table, recovers the whole `.bod` through zlib.
 - Recovers the zlib streams of `anim_streams.upak` without depending on offzip.
-- Extracts Wwise AKPK packages (`core.pck`, `en.pck`, `es.pck`) to `.wem`, preserving their IDs
-  and language.
 - Copies `.bik` videos, subtitles and auxiliary files.
 - Includes search, multiple selection, cancellation and safe policies for duplicate files.
 - Requires no QuickBMS, no offzip and no external Python packages.
@@ -67,12 +65,6 @@ Inventory:
 python -m darkstractor scan
 ```
 
-Extract one specific track:
-
-```powershell
-python -m darkstractor extract --output .\extraction --archive core.pck --filter 454907743.wem
-```
-
 Extract resources whose name contains `death`:
 
 ```powershell
@@ -103,7 +95,6 @@ default, duplicates get a numeric suffix.
 - Type 8 → `.anm`; type 9 → `.bnk`; type 12 → `.gfx`; types 11/15/20 → `.smf`, `.sam` and `.loc`.
 - `anim_streams.upak` → numbered zlib streams; the extension identifiable from the header is
   preserved.
-- `*.pck` → `.wem` and, when the table lists them, `.bnk`.
 - Type 9 → the `.bnk` itself plus `<name>_wem/<id>.wem` with the audio it carries inside.
 - `video` → exact `.bik` and `.sub` copies.
 - `scripts.obsp`, `worlds.bin`, `worldnodes32.bin`, `worldnodes64.bin` → exact copies; each one
@@ -132,7 +123,7 @@ This repository distributes no third-party code or binaries: everything tracked 
 work and uses only the Python standard library. What does come from outside is **knowledge about
 the game's formats**, and that has to be acknowledged.
 
-The readers for `manifest.bin`, OBPK and AKPK are original implementations, but they derive from
+The readers for `manifest.bin` and OBPK are original implementations, but they derive from
 descriptions published by other people: the QuickBMS scripts for Darksiders and Darksiders II
 (http://quickbms.aluigi.org), the information about the manifest that those scripts credit to
 DS2extract, and the ZenHAX thread that documented the later versions of the format. The zlib

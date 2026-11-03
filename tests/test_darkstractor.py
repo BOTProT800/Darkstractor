@@ -10,7 +10,6 @@ import zlib
 from pathlib import Path
 
 from darkstractor.errors import FormatError
-from darkstractor.formats.akpk import parse_akpk
 from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
 from darkstractor.formats.manifest import parse_manifest
@@ -193,31 +192,6 @@ class ZlibTests(unittest.TestCase):
         finally:
             source.unlink(missing_ok=True)
             destination.unlink(missing_ok=True)
-
-
-class AkpkTests(unittest.TestCase):
-    def test_parses_little_endian_sound_table(self) -> None:
-        language_section = struct.pack("<III", 1, 12, 0) + "sfx\0".encode("utf-16-le")
-        bank_section = struct.pack("<I", 0)
-        sound_offset = 0x100
-        sound = b"RIFF" + b"audio"
-        sound_section = struct.pack("<I", 1) + struct.pack("<IIIII", 1234, 1, len(sound), sound_offset, 0)
-        header_size = 0x10 + len(language_section) + len(bank_section) + len(sound_section)
-        header = b"AKPK" + struct.pack(
-            "<IIIII", header_size, 1, len(language_section), len(bank_section), len(sound_section)
-        )
-        data = header + language_section + bank_section + sound_section
-        data += bytes(sound_offset - len(data)) + sound
-        path = SCRATCH / "audio.pck"
-        try:
-            path.write_bytes(data)
-            entries = parse_akpk(path)
-            self.assertEqual(len(entries), 1)
-            self.assertEqual(entries[0].name, "audio/1234.wem")
-            self.assertEqual(entries[0].offset, sound_offset)
-            self.assertEqual(entries[0].size, len(sound))
-        finally:
-            path.unlink(missing_ok=True)
 
 
 class DeathinitiveObpTests(unittest.TestCase):

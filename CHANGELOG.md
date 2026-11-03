@@ -54,6 +54,10 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
 
 - The unused `ObpMember` import and the `Entry.display_size` property, neither of which was
   referenced anywhere.
+- Extraction of the Wwise `.pck` packages in `media\sounds_streamed\PC` (`core.pck`, `en.pck`,
+  `es.pck`): they are no longer listed as containers, and the AKPK reader
+  (`darkstractor/formats/akpk.py`) and its test are gone. The audio embedded in the SoundBanks
+  of the OBP packages (type 9) is still split out to `.wem`.
 
 ## [0.4.0] - 2026-08-29
 

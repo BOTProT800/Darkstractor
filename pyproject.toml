@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "BOTProT800" }]
-keywords = ["darksiders", "upak", "obpk", "akpk", "wwise", "extractor", "modding"]
+keywords = ["darksiders", "upak", "obpk", "wwise", "extractor", "modding"]
 # Solo biblioteca estándar, a propósito: ni QuickBMS, ni offzip, ni paquetes de PyPI.
 dependencies = []
 dynamic = ["version"]

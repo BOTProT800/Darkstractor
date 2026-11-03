@@ -157,20 +157,6 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 - **What it gave us:** it documented the `manifest.bin` variant used by the later releases of the
   game, which is the one Deathinitive Edition ships.
 
-### Audiokinetic Wwise AKPK container
-
-- **Author(s):** Audiokinetic (the format); the specific description used comes from
-  `darksiders2_pck.bms`, whose author is **unknown — needs verification**.
-- **Source:** `git show 289318a:darksiders2_pck.bms`
-- **License:** **Unknown — needs verification.**
-- **Redistribution:** **No.**
-- **Added:** 2026-08-22
-- **Where it is used:** [darkstractor/formats/akpk.py](darkstractor/formats/akpk.py)
-- **Use:** original implementation derived from an external description of the format.
-- **What it gave us:** understanding the `AKPK` header and its entry table (name CRC, alignment
-  size, size, and the multiplied offset) in order to extract the `.wem` files from `core.pck`,
-  `en.pck` and `es.pck`. Endianness and language detection are our own additions.
-
 ### Audiokinetic Wwise SoundBank (`.bnk`)
 
 - **Author(s):** Audiokinetic (the format). The section layout is publicly documented by the
@@ -258,7 +244,7 @@ entry moves here, dated, when the material it describes stops being used.
 - **Redistributed:** **Yes, from 2026-08-22 to 2026-08-25** (18 lines). Removed in `c93ed7f`.
 - **Use:** copied verbatim while it was tracked; consulted as a reference afterwards.
 - **Modified?:** No.
-- **What it gave us:** reading the AKPK container. See the format entry above.
+- **What it gave us:** reading the AKPK container. See the AKPK format entry below, also retired.
 
 ### tasklist (Microsoft Windows)
 
@@ -296,6 +282,25 @@ entry moves here, dated, when the material it describes stops being used.
 - **Use:** original implementation based on a publicly documented format.
 - **What it gave us:** validating DDS headers (the `DDS ` magic, the 124-byte header, FourCC,
   mipmaps and the DX10 block) before accepting a replacement texture.
+
+### Audiokinetic Wwise AKPK container
+
+- **Author(s):** Audiokinetic (the format); the specific description used comes from
+  `darksiders2_pck.bms`, whose author is **unknown — needs verification**.
+- **Source:** `git show 289318a:darksiders2_pck.bms`
+- **License:** **Unknown — needs verification.**
+- **Redistribution:** **No.**
+- **Added:** 2026-08-22
+- **Where it was used:** `darkstractor/formats/akpk.py` (deleted on 2026-11-03; the last tracked
+  version is `git show 40b83d1:darkstractor/formats/akpk.py`)
+- **Retired:** 2026-11-03. Darkstractor no longer lists or extracts the Wwise `.pck` packages in
+  `media\sounds_streamed\PC`, so the AKPK reader was removed along with its test. Nothing in the
+  tree reads that format any more. The `.bnk` SoundBanks inside the OBP packages are a different
+  format and are still split (see the SoundBank entry above).
+- **Use:** original implementation derived from an external description of the format.
+- **What it gave us:** understanding the `AKPK` header and its entry table (name CRC, alignment
+  size, size, and the multiplied offset) in order to extract the `.wem` files from `core.pck`,
+  `en.pck` and `es.pck`. Endianness and language detection were our own additions.
 
 ## Open compliance obligations
 

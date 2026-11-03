@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract = subparsers.add_parser("extract", help="extraer recursos")
     extract.add_argument("--game", type=Path, default=DEFAULT_GAME)
     extract.add_argument("--output", type=Path, required=True)
-    extract.add_argument("--archive", help="nombre del contenedor, por ejemplo core.pck")
+    extract.add_argument("--archive", help="nombre del contenedor, por ejemplo media.upak")
     extract.add_argument("--filter", default="", help="texto contenido en la ruta")
     extract.add_argument("--inner-filter", help="extraer solo miembros internos que contengan este texto")
     extract.add_argument("--raw", action="store_true", help="no descomprimir los segmentos OBP")

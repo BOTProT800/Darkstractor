@@ -12,7 +12,6 @@ from threading import Event
 from typing import Callable, Iterable
 
 from .errors import CancelledError, DarkstractorError, FormatError
-from .formats.akpk import parse_akpk
 from .formats.bnk import parse_bank_media
 from .formats.deathinitive_obp import (
     VARIANT_CHUNK_PER_MEMBER,
@@ -185,10 +184,6 @@ def scan_game(game_root: Path) -> list[Archive]:
                 "Sin TOC: recuperación secuencial de streams zlib",
             )
         )
-
-    sound_dir = media / "sounds_streamed" / "PC"
-    for pck in sorted(sound_dir.glob("*.pck")) if sound_dir.is_dir() else []:
-        archives.append(Archive(pck.name, pck, "akpk", parse_akpk(pck), "Audio Wwise por ID"))
 
     videos: list[Entry] = []
     video_dir = media / "video"
