@@ -9,7 +9,8 @@ import unittest
 import zlib
 from pathlib import Path
 
-from darkstractor.errors import FormatError
+from darkstractor.errors import DarkstractorError, FormatError
+from darkstractor.formats import dds
 from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
 from darkstractor.formats.manifest import parse_manifest
@@ -28,23 +29,70 @@ from darkstractor.service import (
     extract_entries,
     list_obp_members,
     looks_like_game,
+    read_member_bytes,
     safe_relative_path,
 )
 
 SCRATCH = Path(__file__).parent / ".tmp"
 
 
-def make_dds(payload: bytes = b"12345678") -> bytes:
+def make_dds_file(
+    payload: bytes,
+    *,
+    width: int = 4,
+    height: int = 4,
+    mipmaps: int = 1,
+    fourcc: bytes | None = b"DXT1",
+    bits: int = 0,
+    masks: tuple[int, int, int, int] = (0, 0, 0, 0),
+    alpha_pixels: bool = False,
+    pixel_flags: int | None = None,
+) -> bytes:
+    """DDS mínimo pero válido: lo que se lee son sus 128 bytes de cabecera."""
     header = bytearray(128)
     header[:4] = b"DDS "
     struct.pack_into("<I", header, 4, 124)
     struct.pack_into("<I", header, 8, 0x000A1007)
-    struct.pack_into("<IIIII", header, 12, 4, 4, 8, 0, 1)
+    struct.pack_into("<IIIII", header, 12, height, width, len(payload), 0, mipmaps)
     struct.pack_into("<I", header, 76, 32)
-    struct.pack_into("<I", header, 80, 4)
-    header[84:88] = b"DXT1"
+    if fourcc is not None:
+        struct.pack_into("<I", header, 80, 0x4 | (0x1 if alpha_pixels else 0))
+        header[84:88] = fourcc
+    else:
+        flags = 0x40 | (0x1 if masks[3] else 0) if pixel_flags is None else pixel_flags
+        struct.pack_into("<I", header, 80, flags)
+        struct.pack_into("<I", header, 88, bits)
+        struct.pack_into("<IIII", header, 92, *masks)
     struct.pack_into("<I", header, 108, 0x1000)
     return bytes(header) + payload
+
+
+def make_dds(payload: bytes = b"12345678") -> bytes:
+    return make_dds_file(payload)
+
+
+#: Rojo y azul puros en 565, los dos extremos de una paleta BC.
+RED565 = 0xF800
+BLUE565 = 0x001F
+
+
+def bc1_block(c0: int, c1: int, codes: list[int]) -> bytes:
+    bits = 0
+    for index, code in enumerate(codes):
+        bits |= (code & 3) << (index * 2)
+    return struct.pack("<HHI", c0, c1, bits)
+
+
+def bc3_block(a0: int, a1: int, alpha_codes: list[int], c0: int, c1: int, codes: list[int]) -> bytes:
+    packed = 0
+    for index, code in enumerate(alpha_codes):
+        packed |= (code & 7) << (index * 3)
+    return bytes((a0, a1)) + packed.to_bytes(6, "little") + bc1_block(c0, c1, codes)
+
+
+def solid_bc1(colour: int, blocks: int) -> bytes:
+    """Bloques BC1 de un único color, para distinguir niveles mipmap."""
+    return bc1_block(colour, colour, [0] * 16) * blocks
 
 
 def make_bnk(media: list[tuple[int, bytes]]) -> bytes:
@@ -491,6 +539,243 @@ class GameDetectionTests(unittest.TestCase):
 
     def test_a_path_that_does_not_exist_is_not_the_game(self) -> None:
         self.assertFalse(looks_like_game(SCRATCH / "ni_existe"))
+
+
+def png_contents(blob: bytes) -> tuple[int, int, int, bytes]:
+    """Devuelve ancho, alto, tipo de color y los bytes ya descomprimidos."""
+    if blob[:8] != b"\x89PNG\r\n\x1a\n":
+        raise AssertionError("No empieza por la firma PNG")
+    position, width, height, colour, payload = 8, 0, 0, 0, b""
+    while position < len(blob):
+        length = struct.unpack_from(">I", blob, position)[0]
+        tag = blob[position + 4 : position + 8]
+        body = blob[position + 8 : position + 8 + length]
+        if tag == b"IHDR":
+            width, height, _depth, colour = struct.unpack_from(">IIBB", body)
+        elif tag == b"IDAT":
+            payload += body
+        position += 12 + length
+    return width, height, colour, zlib.decompress(payload)
+
+
+class DdsDecodingTests(unittest.TestCase):
+    def test_decodes_a_bc1_block_into_its_four_colours(self) -> None:
+        block = bc1_block(RED565, BLUE565, [0, 1, 2, 3] * 4)
+        image = dds.decode(make_dds_file(block))
+        self.assertEqual(image.width, 4)
+        self.assertEqual(image.header.label, "DXT1")
+        self.assertEqual(
+            [tuple(image.rgb[index * 3 : index * 3 + 3]) for index in range(4)],
+            [(255, 0, 0), (0, 0, 255), (170, 0, 85), (85, 0, 170)],
+        )
+        self.assertIsNone(image.alpha)
+
+    def test_the_three_colour_mode_turns_the_last_index_transparent(self) -> None:
+        # Con c0 <= c1, BC1 cambia a tres colores y un índice transparente.
+        block = bc1_block(BLUE565, RED565, [0, 1, 2, 3] * 4)
+        image = dds.decode(make_dds_file(block, alpha_pixels=True))
+        self.assertIsNotNone(image.alpha)
+        self.assertEqual(list(image.alpha[:4]), [255, 255, 255, 0])
+        self.assertEqual(tuple(image.rgb[9:12]), (0, 0, 0))
+
+    def test_an_opaque_bc1_does_not_invent_an_alpha_channel(self) -> None:
+        block = bc1_block(RED565, BLUE565, [0] * 16)
+        image = dds.decode(make_dds_file(block, alpha_pixels=True))
+        self.assertIsNone(image.alpha)
+
+    def test_decodes_the_interpolated_alpha_of_bc3(self) -> None:
+        block = bc3_block(255, 0, [0, 1, 2, 3] * 4, RED565, BLUE565, [0] * 16)
+        image = dds.decode(make_dds_file(block, fourcc=b"DXT5"))
+        self.assertEqual(image.header.label, "DXT5")
+        self.assertEqual(list(image.alpha[:2]), [255, 0])
+        # Los índices intermedios reparten el tramo en siete pasos.
+        self.assertEqual(list(image.alpha[2:4]), [(6 * 255) // 7, (5 * 255) // 7])
+        self.assertEqual(tuple(image.rgb[:3]), (255, 0, 0))
+
+    def test_decodes_uncompressed_pixels_through_their_masks(self) -> None:
+        # B8G8R8A8, el orden que usa la interfaz del juego.
+        payload = bytes((0x10, 0x20, 0x30, 0x40)) * 16
+        data = make_dds_file(
+            payload,
+            fourcc=None,
+            bits=32,
+            masks=(0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000),
+        )
+        image = dds.decode(data)
+        self.assertEqual(image.header.label, "RGB 32 bits")
+        self.assertEqual(tuple(image.rgb[:3]), (0x30, 0x20, 0x10))
+        self.assertEqual(image.alpha[0], 0x40)
+
+    def test_picks_a_smaller_mipmap_for_the_preview(self) -> None:
+        green = 0x07E0
+        payload = (
+            solid_bc1(RED565, 256)
+            + solid_bc1(green, 64)
+            + solid_bc1(BLUE565, 16)
+            + solid_bc1(0xFFFF, 4)
+        )
+        data = make_dds_file(payload, width=64, height=64, mipmaps=4)
+        self.assertEqual(tuple(dds.decode(data).rgb[:3]), (255, 0, 0))
+        preview = dds.decode(data, max_side=16)
+        self.assertEqual((preview.width, preview.height, preview.level), (16, 16, 2))
+        self.assertEqual(tuple(preview.rgb[:3]), (0, 0, 255))
+        self.assertTrue(preview.reduced)
+
+    def test_does_not_trust_mipmaps_the_file_does_not_carry(self) -> None:
+        # La cabecera promete cinco niveles y solo viene el primero.
+        data = make_dds_file(solid_bc1(RED565, 256), width=64, height=64, mipmaps=5)
+        preview = dds.decode(data, max_side=16)
+        self.assertEqual((preview.width, preview.height), (16, 16))
+        self.assertEqual((preview.level, preview.shrink), (0, 4))
+        self.assertEqual(tuple(preview.rgb[:3]), (255, 0, 0))
+
+    def test_samples_pixels_when_there_are_no_mipmaps(self) -> None:
+        data = make_dds_file(solid_bc1(RED565, 256), width=64, height=64)
+        preview = dds.decode(data, max_side=16)
+        self.assertEqual((preview.width, preview.height), (16, 16))
+        self.assertEqual((preview.level, preview.shrink), (0, 4))
+        self.assertTrue(preview.reduced)
+        self.assertEqual(tuple(preview.rgb[:3]), (255, 0, 0))
+
+    def test_a_sampled_preview_keeps_the_alpha_channel(self) -> None:
+        # Columnas 0-1 opacas y rojas, columnas 2-3 transparentes y azules.
+        block = bc3_block(255, 0, [0, 0, 1, 1] * 4, RED565, BLUE565, [0, 0, 1, 1] * 4)
+        data = make_dds_file(block * 4, width=8, height=8, fourcc=b"DXT5")
+        preview = dds.decode(data, max_side=4)
+        self.assertEqual((preview.width, preview.height, preview.shrink), (4, 4, 2))
+        # Uno de cada dos píxeles: se alternan las dos mitades de cada bloque.
+        self.assertEqual(list(preview.alpha[:4]), [255, 0, 255, 0])
+        self.assertEqual(tuple(preview.rgb[:6]), (255, 0, 0, 0, 0, 255))
+
+    def test_skips_whole_blocks_past_one_pixel_per_block(self) -> None:
+        # Solo los bloques de fila y columna pares son rojos: con paso 8 se
+        # visita uno de cada dos en cada eje, así que no debe verse el azul.
+        payload = b"".join(
+            solid_bc1(RED565 if block_x % 2 == 0 and block_y % 2 == 0 else BLUE565, 1)
+            for block_y in range(8)
+            for block_x in range(8)
+        )
+        preview = dds.decode(make_dds_file(payload, width=32, height=32), max_side=4)
+        self.assertEqual((preview.width, preview.height, preview.shrink), (4, 4, 8))
+        self.assertEqual(preview.rgb, bytes((255, 0, 0)) * 16)
+
+    def test_samples_uncompressed_rows(self) -> None:
+        # Cuatro píxeles BGRA por fila; el azul lleva el número de columna.
+        row = b"".join(bytes((column, 0x20, 0x30, 0xFF)) for column in range(4))
+        data = make_dds_file(
+            row * 2,
+            width=4,
+            height=2,
+            fourcc=None,
+            bits=32,
+            masks=(0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000),
+        )
+        preview = dds.decode(data, max_side=2)
+        self.assertEqual((preview.width, preview.height, preview.shrink), (2, 1, 2))
+        self.assertEqual(tuple(preview.rgb), (0x30, 0x20, 0, 0x30, 0x20, 2))
+        self.assertEqual(tuple(preview.alpha), (0xFF, 0xFF))
+
+    def test_reads_single_byte_luminance(self) -> None:
+        # El formato de los atlas de fuentes: un byte de gris por píxel.
+        data = make_dds_file(
+            bytes(range(16)),
+            fourcc=None,
+            bits=8,
+            masks=(0xFF, 0, 0, 0),
+            pixel_flags=0x20000,
+        )
+        image = dds.decode(data)
+        self.assertEqual(image.header.label, "Luminancia 8 bits")
+        self.assertEqual(tuple(image.rgb[9:15]), (3, 3, 3, 4, 4, 4))
+        self.assertIsNone(image.alpha)
+
+    def test_scales_channels_narrower_than_a_byte(self) -> None:
+        # A4R4G4B4: alfa 8, rojo 15, verde 4 y azul 0, cada uno en cuatro bits.
+        data = make_dds_file(
+            struct.pack("<H", 0x8F40) * 16,
+            fourcc=None,
+            bits=16,
+            masks=(0x0F00, 0x00F0, 0x000F, 0xF000),
+        )
+        image = dds.decode(data)
+        self.assertEqual(image.header.label, "RGB 16 bits")
+        self.assertEqual(tuple(image.rgb[:3]), (255, 68, 0))
+        self.assertEqual(image.alpha[0], 136)
+
+    def test_refuses_formats_it_cannot_draw(self) -> None:
+        block = bc1_block(RED565, BLUE565, [0] * 16)
+        with self.assertRaises(FormatError):
+            dds.decode(make_dds_file(block * 2, fourcc=b"DX10"))
+        with self.assertRaises(FormatError):
+            dds.decode(make_dds_file(block, fourcc=b"XYZW"))
+        with self.assertRaises(FormatError):
+            dds.decode(b"no es un dds" + bytes(200))
+
+    def test_refuses_a_truncated_texture(self) -> None:
+        # La cabecera promete 64x64 y el payload solo trae un bloque.
+        data = make_dds_file(bc1_block(RED565, BLUE565, [0] * 16), width=64, height=64)
+        with self.assertRaises(FormatError):
+            dds.decode(data)
+
+    def test_writes_a_png_that_keeps_the_pixels(self) -> None:
+        block = bc3_block(255, 1, [0, 1] * 8, RED565, BLUE565, [0, 1] * 8)
+        image = dds.decode(make_dds_file(block, fourcc=b"DXT5"))
+
+        width, height, colour, raw = png_contents(dds.to_png(image))
+        self.assertEqual((width, height, colour), (4, 4, 6))
+        # Cada fila empieza por su byte de filtro, siempre 0.
+        self.assertEqual(raw[0], 0)
+        self.assertEqual(tuple(raw[1:9]), (255, 0, 0, 255, 0, 0, 255, 1))
+
+        width, height, colour, raw = png_contents(dds.to_png(image, mode="opaque"))
+        self.assertEqual(colour, 2)
+        self.assertEqual(tuple(raw[1:7]), (255, 0, 0, 0, 0, 255))
+
+        width, height, colour, raw = png_contents(dds.to_png(image, mode="alpha"))
+        self.assertEqual((width, colour), (4, 0))
+        self.assertEqual(tuple(raw[1:3]), (255, 1))
+
+    def test_the_alpha_view_needs_an_alpha_channel(self) -> None:
+        image = dds.decode(make_dds_file(bc1_block(RED565, BLUE565, [0] * 16)))
+        with self.assertRaises(FormatError):
+            dds.to_png(image, mode="alpha")
+
+
+class MemberReadingTests(unittest.TestCase):
+    """Lectura en memoria de un recurso suelto, sin escribir nada."""
+
+    def _members(self, source: Path, variant: int) -> list[Entry]:
+        texture = make_dds_file(bc1_block(RED565, BLUE565, [0, 1, 2, 3] * 4))
+        model = b"MODEL" + bytes(2048)
+        source.write_bytes(
+            make_obp([(2, b"model", model), (6, b"texture", texture)], variant=variant)
+        )
+        self.texture = texture
+        return list_obp_members(Entry(f"{source.stem}.", 0, source.stat().st_size, source, "upak-segment"))
+
+    def test_reads_a_member_of_each_variant_without_touching_the_disk(self) -> None:
+        for variant in (0, 1):
+            with self.subTest(variant=variant):
+                source = SCRATCH / f"memoria_{variant}.upak"
+                try:
+                    members = self._members(source, variant)
+                    before = sorted(item.name for item in SCRATCH.iterdir())
+                    data = read_member_bytes(members[1])
+                    self.assertEqual(data, self.texture)
+                    self.assertEqual(dds.decode(data).width, 4)
+                    # Nada nuevo en el directorio: la lectura es solo memoria.
+                    self.assertEqual(sorted(item.name for item in SCRATCH.iterdir()), before)
+                finally:
+                    source.unlink(missing_ok=True)
+
+    def test_refuses_a_member_larger_than_the_memory_limit(self) -> None:
+        source = SCRATCH / "memoria_limite.upak"
+        try:
+            members = self._members(source, 0)
+            with self.assertRaises(DarkstractorError):
+                read_member_bytes(members[1], limit=16)
+        finally:
+            source.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,8 @@ out into the output folder you pick, and the game files are left exactly as they
 - When a variant has no usable table, recovers the whole `.bod` through zlib.
 - Recovers the zlib streams of `anim_streams.upak` without depending on offzip.
 - Copies `.bik` videos, subtitles and auxiliary files.
+- Previews DDS textures inside the interface, without extracting them: DXT1, DXT3, DXT5, BC4,
+  BC5 and the uncompressed layouts, with colour, opaque and alpha-only views.
 - Includes search, multiple selection, cancellation and safe policies for duplicate files.
 - Requires no QuickBMS, no offzip and no external Python packages.
 
@@ -52,7 +54,9 @@ C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition
 3. Filter or select resources in the list on the right.
 4. Press **Abrir paquete** — or double-click — to view and select its DDS files, models,
    materials and other internal files.
-5. Choose the output folder and press **Extraer selección**.
+5. Double-click a DDS — or select it and press **Ver imagen** — to look at it before deciding.
+   The preview opens on a reduced version; **Detalle completo** decodes it at up to 2048 px.
+6. Choose the output folder and press **Extraer selección**.
 
 The **Separar recursos internos** option extracts each member under its own name. Turning it off
 keeps the secondary segments as `.obp`.
@@ -106,6 +110,10 @@ default, duplicates get a numeric suffix.
   or weights are not rebuilt.
 - `.wem` files stay in the original Wwise format. To interpret them by event or to play dynamic
   music, wwiser and vgmstream are recommended.
+- The preview draws DDS textures only, and never above 2048 px on a side: larger textures (the
+  game goes up to 4096 px) are shown reduced, though they are extracted whole. It does not read
+  the DX10 variant (BC6H, BC7), which none of the game's textures uses. Lightmaps, normal maps
+  and masks are shown as stored, so many of them do not look like pictures.
 
 ## Tests
 

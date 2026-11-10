@@ -55,6 +55,10 @@ OBP_TYPE_INFO: dict[int, tuple[str, str]] = {
 }
 
 
+#: Tope para cargar un recurso en memoria. La textura más grande del juego no
+#: llega a 6 MB, así que esto solo frena a un miembro con la tabla corrupta.
+MEMORY_READ_LIMIT = 64 * 1024 * 1024
+
 #: Lo que tiene que haber para que una carpeta sea una instalación utilizable.
 MANIFEST_RELATIVE = Path("media") / "manifest.bin"
 EXECUTABLE_NAME = "Darksiders2.exe"
@@ -157,6 +161,82 @@ def list_obp_members(entry: Entry) -> list[Entry]:
             )
         )
     return results
+
+
+def read_member_bytes(
+    entry: Entry, *, limit: int = MEMORY_READ_LIMIT, cancel: Event | None = None
+) -> bytes:
+    """Devuelve el contenido de una entrada en memoria, sin pasar por disco.
+
+    La vista previa necesita los bytes de un solo recurso, no una extracción.
+    La variante por chunks salta directamente a su stream; la de payload único
+    tiene que descomprimir desde el principio, pero se corta en cuanto el
+    miembro está completo en lugar de recorrer el segmento entero.
+    """
+    if entry.size > limit:
+        raise DarkstractorError(
+            f"{entry.name} ocupa {human_size(entry.size)} y no se carga en memoria"
+        )
+    if not entry.kind.startswith("obp-"):
+        with entry.source.open("rb") as file:
+            file.seek(entry.offset)
+            data = file.read(entry.size)
+        if len(data) != entry.size:
+            raise FormatError(f"Lectura incompleta de {entry.source.name}")
+        return data
+
+    base = int(entry.metadata["obp_base"])
+    segment_size = int(entry.metadata["obp_size"])
+    index = int(entry.metadata["member_index"])
+    archive = parse_deathinitive_obp(entry.source, base=base, size=segment_size)
+    if not 0 <= index < len(archive.members):
+        raise FormatError(f"El paquete ya no contiene el miembro {index}")
+    member = archive.members[index]
+
+    data = bytearray()
+    with entry.source.open("rb") as file:
+        if archive.variant == VARIANT_CHUNK_PER_MEMBER:
+            if member.chunk_offset is None:
+                raise FormatError(f"El miembro {member.name} no tiene chunk propio")
+            edges = [item.chunk_offset or 0 for item in archive.members] + [segment_size]
+            file.seek(base + member.chunk_offset + 4)
+            remaining = edges[index + 1] - member.chunk_offset - 4
+            decoder = zlib.decompressobj()
+            while remaining > 0 and not decoder.eof and len(data) < member.size:
+                if cancel and cancel.is_set():
+                    raise CancelledError("Lectura cancelada")
+                packed = file.read(min(1024 * 1024, remaining))
+                if not packed:
+                    break
+                remaining -= len(packed)
+                data += decoder.decompress(packed)
+        else:
+            file.seek(base + archive.stream_offset)
+            remaining = archive.compressed_size
+            decoder = zlib.decompressobj()
+            position = 0
+            end = member.offset + member.size
+            while remaining > 0 and not decoder.eof and position < end:
+                if cancel and cancel.is_set():
+                    raise CancelledError("Lectura cancelada")
+                packed = file.read(min(1024 * 1024, remaining))
+                if not packed:
+                    break
+                remaining -= len(packed)
+                block = decoder.decompress(packed)
+                if not block:
+                    continue
+                start = position
+                position += len(block)
+                low, high = max(start, member.offset), min(position, end)
+                if high > low:
+                    data += block[low - start : high - start]
+
+    if len(data) != member.size:
+        raise FormatError(
+            f"{member.name} dio {len(data)} bytes y su tabla declaraba {member.size}"
+        )
+    return bytes(data)
 
 
 def scan_game(game_root: Path) -> list[Archive]:

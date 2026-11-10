@@ -27,6 +27,16 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
   `darkstractor-gui` entry point that starts without a console, and this changelog.
 - A Windows executable built with PyInstaller, published from a tag. See the licensing note in
   [CREDITS.md](CREDITS.md) before publishing one.
+- A preview window for the DDS textures inside a package: double-click one, or select it and
+  press **Ver imagen**, and it is drawn without extracting anything. The decoder is pure Python
+  and covers DXT1, DXT3, DXT5, BC4, BC5 and the uncompressed 8, 16, 24 and 32-bit layouts, with
+  colour, opaque and alpha-only views and power-of-two zoom. It opens on a version of at most
+  512 px — a mipmap when the texture has them, one pixel out of every few when it does not —
+  and **Detalle completo** decodes it at up to 2048 px on request. Checked against all 15,254
+  textures in the game: every header is read, and none uses the DX10 variant.
+- `read_member_bytes` reads a single package member into memory without touching the disk: it
+  seeks straight to the chunk in the per-member variant, and in the single-stream one it stops
+  inflating as soon as the member is complete.
 
 ### Changed
 

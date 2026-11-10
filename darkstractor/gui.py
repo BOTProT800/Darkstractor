@@ -11,7 +11,9 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .errors import CancelledError, DarkstractorError
+from .formats import dds
 from .models import Archive, Entry
+from .preview import FULL_DETAIL_MAX_SIDE, PREVIEW_MAX_SIDE, ImageWindow
 from .settings import load_settings, save_settings
 from .service import (
     ensure_free_space,
@@ -21,12 +23,16 @@ from .service import (
     human_size,
     list_obp_members,
     looks_like_game,
+    read_member_bytes,
     scan_game,
 )
 
 DEFAULT_GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition")
 
 COLLISION_POLICIES = {"Renombrar": "rename", "Omitir": "skip", "Sobrescribir": "overwrite"}
+
+#: Tipos de recurso que la vista previa sabe dibujar.
+VIEWABLE_KINDS = frozenset({"obp-dds"})
 
 
 class DarkstractorApp(tk.Tk):
@@ -48,6 +54,11 @@ class DarkstractorApp(tk.Tk):
         self.current_entries: list[Entry] = []
         self.inner_parent: Entry | None = None
         self.visible_entries: list[Entry] = []
+        self.preview_window: ImageWindow | None = None
+        self.preview_thread: threading.Thread | None = None
+        #: Última textura abierta y sus bytes, para no releerla al pedir detalle.
+        self.preview_entry: Entry | None = None
+        self.preview_data: bytes | None = None
 
         saved = load_settings()
         collision = str(saved.get("collision") or "")
@@ -155,6 +166,8 @@ class DarkstractorApp(tk.Tk):
         self.back_button.pack(side="left", padx=(12, 6))
         self.explore_button = ttk.Button(top_right, text="Abrir paquete", command=self.explore_selected)
         self.explore_button.pack(side="left")
+        self.preview_button = ttk.Button(top_right, text="Ver imagen", command=self.view_selected)
+        self.preview_button.pack(side="left", padx=(6, 0))
         ttk.Entry(top_right, textvariable=self.filter_var, width=30).pack(side="right")
         ttk.Label(top_right, text="Filtrar  ", background="#1a1e24", foreground="#9299a6").pack(side="right")
 
@@ -178,7 +191,7 @@ class DarkstractorApp(tk.Tk):
         entry_frame.rowconfigure(0, weight=1)
         self.entry_tree.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
-        self.entry_tree.bind("<Double-1>", lambda _event: self.explore_selected())
+        self.entry_tree.bind("<Double-1>", lambda _event: self.activate_selected())
 
         options = ttk.Frame(self, padding=(22, 12, 22, 8))
         options.pack(fill="x")
@@ -357,12 +370,76 @@ class DarkstractorApp(tk.Tk):
         context = self.inner_parent.name if self.inner_parent else self.current_archive.name
         self.status_var.set(f"{context}: {len(self.visible_entries):,} entradas visibles")
 
-    def explore_selected(self) -> None:
+    def _single_selection(self) -> Entry | None:
         selected = self.entry_tree.selection()
         if len(selected) != 1:
+            return None
+        return self.visible_entries[int(selected[0])]
+
+    def activate_selected(self) -> None:
+        """Doble clic: abre el paquete, o enseña la textura si lo que hay es una."""
+        entry = self._single_selection()
+        if entry is not None and entry.kind in VIEWABLE_KINDS:
+            self.view_selected()
+        else:
+            self.explore_selected()
+
+    def view_selected(self) -> None:
+        entry = self._single_selection()
+        if entry is None:
+            messagebox.showinfo("Darkstractor", "Selecciona una única textura de la lista.")
+            return
+        if entry.kind not in VIEWABLE_KINDS:
+            messagebox.showinfo(
+                "Vista previa",
+                "Por ahora solo se pueden ver las texturas DDS que hay dentro de un paquete.\n\n"
+                "Abre el paquete y elige una de sus entradas DDS.",
+            )
+            return
+        self._load_preview(entry)
+
+    def _load_preview(self, entry: Entry, *, full_detail: bool = False) -> None:
+        """Lee y decodifica la textura fuera del hilo de la interfaz.
+
+        No usa el hilo de trabajo principal: mirar una textura no debería
+        quedarse esperando a que termine una extracción, ni cancelarla.
+        """
+        if self.preview_thread and self.preview_thread.is_alive():
+            return
+        # Pedir más detalle de la textura que ya está abierta no vuelve al
+        # disco: en la variante de payload único releerla cuesta más que
+        # decodificarla.
+        cached = self.preview_data if entry is self.preview_entry else None
+        self.preview_button.configure(state="disabled")
+        self.status_var.set(f"Leyendo {entry.name}…")
+        max_side = FULL_DETAIL_MAX_SIDE if full_detail else PREVIEW_MAX_SIDE
+
+        def run() -> None:
+            try:
+                data = cached if cached is not None else read_member_bytes(entry)
+                image = dds.decode(data, max_side=max_side)
+            except Exception as exc:
+                self.messages.put(("preview-error", exc))
+            else:
+                self.messages.put(("preview", (entry, data, image, full_detail)))
+
+        self.preview_thread = threading.Thread(target=run, daemon=True)
+        self.preview_thread.start()
+
+    def _reload_full_detail(self, _name: str) -> None:
+        if self.preview_entry is not None:
+            self._load_preview(self.preview_entry, full_detail=True)
+
+    def _show_preview(self, name: str, image: dds.DecodedImage, full_detail: bool) -> None:
+        if self.preview_window is None or not self.preview_window.winfo_exists():
+            self.preview_window = ImageWindow(self, on_full_detail=self._reload_full_detail)
+        self.preview_window.show(name, image, full_detail=full_detail)
+
+    def explore_selected(self) -> None:
+        entry = self._single_selection()
+        if entry is None:
             messagebox.showinfo("Darkstractor", "Selecciona un único paquete UPAK para abrirlo.")
             return
-        entry = self.visible_entries[int(selected[0])]
         if entry.kind != "upak-segment":
             return
         try:
@@ -455,6 +532,22 @@ class DarkstractorApp(tk.Tk):
                 kind, payload = self.messages.get_nowait()
                 if kind == "log":
                     self._append_log(str(payload))
+                elif kind == "preview":
+                    entry, data, image, full_detail = payload
+                    self.preview_entry, self.preview_data = entry, data
+                    self.preview_button.configure(state="normal")
+                    self._show_preview(entry.name, image, full_detail)
+                    self.status_var.set(
+                        f"{entry.name}: {image.header.label}, "
+                        f"{image.header.width}x{image.header.height}"
+                    )
+                elif kind == "preview-error":
+                    self.preview_button.configure(state="normal")
+                    if self.preview_window is not None and self.preview_window.winfo_exists():
+                        self.preview_window.detail_failed()
+                    self._append_log(f"Vista previa: {payload}")
+                    self.status_var.set("No se pudo abrir la vista previa")
+                    messagebox.showinfo("Vista previa", str(payload))
                 elif kind == "done":
                     result, message = payload
                     self._set_busy(False, message)

@@ -9,8 +9,8 @@ Each entry states whether the component **is redistributed inside this repositor
 
 ## Redistribution status
 
-**This repository redistributes no third-party binaries or code.** Verified on 2026-08-26 and
-re-checked on 2026-08-27 through three separate checks:
+**This repository redistributes no third-party binaries or code.** Verified on 2026-08-26,
+re-checked on 2026-08-27 and again on 2026-11-01, through three separate checks:
 
 - `git ls-files` across the whole tree: every tracked file is original code, documentation or
   configuration. There is no `vendor/` or `tools/` directory, and no binaries.
@@ -27,13 +27,22 @@ License conflicts with no external license in the current state of the tree.
 
 ### QuickBMS
 
-- **Author(s):** `aluigi` — the author's real name appears in no file of this repository, only
-  the project domain. It is not transcribed here so as not to over-attribute.
-- **Source:** http://quickbms.aluigi.org (cited in the header of all three `.bms` scripts)
-- **License:** **Unknown — needs verification** on the official site or in the `COPYING` of its
-  distribution. No copy of its license exists inside this repository.
-- **Verified in:** nothing verifiable in the repo; the only evidence is the URL in the headers of
-  `darksiders.bms`, `darksiders2.bms` and `darksiders2_pck.bms` (commit `289318a`).
+- **Author(s):** **Luigi Auriemma** (`aluigi`). Checked on 2026-11-01: his own site publishes the
+  tool and its scripts under that name, and the official manual carries it too. The earlier
+  reticence here is lifted because the source itself states the real name; it is not inferred
+  from the handle.
+- **Source:** http://quickbms.aluigi.org (cited in the header of all three `.bms` scripts);
+  manual at http://aluigi.altervista.org/papers/quickbms.txt
+- **License:** **GPL-2.0**, checked on 2026-11-01 in the official manual, which calls it "open
+  source under the GPL 2.0 license" and adds that the unmodified `quickbms.exe` may be
+  distributed freely, while reusing or modifying its source requires the same or a compatible
+  open-source license. Corroborated by the Arch Linux AUR package (`license=('GPL2')`).
+  **Consequence for this project: its source code can never be absorbed here**, since that would
+  force Darkstractor to be relicensed under the GPL. The tool is neither shipped nor invoked, so
+  nothing is owed today.
+- **Verified in:** nothing verifiable in the repo; the evidence is external — the official manual
+  cited above, plus the URL in the headers of `darksiders.bms`, `darksiders2.bms` and
+  `darksiders2_pck.bms` (commit `289318a`).
 - **Redistribution:** **No.** The QuickBMS executable was never included. Only three `.bms`
   scripts written for it were, and they have been removed (see [History](#history)).
 - **Added:** 2026-08-22 · **Removed from the tree:** 2026-08-25 (`c93ed7f`)
@@ -130,11 +139,16 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 
 ### DS2extract
 
-- **Author(s):** **Unknown — needs verification.** The name appears nowhere in the repository.
+- **Author(s):** `Sir Kane` (a handle; no real name at the source). Checked on 2026-11-01 in the
+  thread below: `zardalu` writes to Sir Kane about updating DS2Extract and relays his reply, and
+  `aluigi` states in the same thread that he neither wrote nor supports the tool.
 - **Source:** cited in the header of `darksiders2.bms`, alongside the thread
   http://zenhax.com/viewtopic.php?t=1738&p=13332#p13332
-- **License:** **Unknown — needs verification.**
-- **Verified in:** `git show 289318a:darksiders2.bms` (header, lines 1-8).
+- **License:** **Unknown — needs verification.** The thread links the tool but states no license,
+  and ZenHAX is offline.
+- **Verified in:** `git show 289318a:darksiders2.bms` (header, lines 1-8); authorship in the
+  thread mirror https://www.zenhax.com/viewtopic.php@t=1738.html (posts of 2015-11-13 and
+  2015-11-16).
 - **Redistribution:** **No.** It was never in the repository.
 - **Added:** 2026-08-22 (by way of `darksiders2.bms`)
 - **Where it is used:** [darkstractor/formats/manifest.py](darkstractor/formats/manifest.py)
@@ -147,10 +161,15 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 
 ### ZenHAX thread on the Darksiders II manifests
 
-- **Author(s):** **Unknown — needs verification.** The post's author is not stated in the repo.
-- **Source:** http://zenhax.com/viewtopic.php?t=1738&p=13332#p13332
-- **License:** **Unknown — needs verification** (forum terms).
-- **Verified in:** `git show 289318a:darksiders2.bms`, header.
+- **Author(s):** opened by `zardalu` on 2015-11-09. The 64-bit offsets information is his post of
+  2015-11-16 relaying `Sir Kane`, and `aluigi` posted the patched tool on 2016-05-13. All three
+  are handles, with no real names at the source. Checked on 2026-11-01.
+- **Source:** http://zenhax.com/viewtopic.php?t=1738&p=13332#p13332 — ZenHAX is offline; read
+  through the mirror https://www.zenhax.com/viewtopic.php@t=1738.html
+- **License:** **Unknown — needs verification** (forum terms; the site is no longer up to state
+  them).
+- **Verified in:** `git show 289318a:darksiders2.bms`, header; thread contents in the mirror
+  above.
 - **Redistribution:** **No.**
 - **Added:** 2026-08-22
 - **Use:** consulted as a reference.
@@ -175,10 +194,15 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 
 ### OBPK container of the Darksiders engine
 
-- **Author(s):** the description used comes from `darksiders.bms`, whose author is **unknown —
-  needs verification** (its header only says "Darksiders (script 0.1.1)").
-- **Source:** `git show 289318a:darksiders.bms`
-- **License:** **Unknown — needs verification.**
+- **Author(s):** the description used comes from `darksiders.bms`, published by **Luigi
+  Auriemma** (`aluigi`) in his own scripts directory; its header only says "Darksiders (script
+  0.1.1)" and names nobody, so the attribution rests on where it is published, not on a
+  signature (checked 2026-11-01).
+- **Source:** `git show 289318a:darksiders.bms`; still online at
+  http://aluigi.altervista.org/bms/darksiders.bms
+- **License:** **None stated at the source.** Checked on 2026-11-01 in the three places where one
+  could appear: the script's header, the QuickBMS scripts page and the official manual, which
+  licenses only the tool and says nothing about the scripts.
 - **Redistribution:** **No** in the current tree; the script was tracked until `c93ed7f`
   (see History).
 - **Added:** 2026-08-22
@@ -206,6 +230,55 @@ outside was *knowledge about the formats*, recorded in the two sections below.
 - **What it gave us:** knowing that `.zgfx` resources are zlib-compressed GFX files, which lets
   us decompress them to `.gfx` with the standard library.
 
+### DDS container and block compression (BC1-BC5)
+
+- **Author(s):** Microsoft (public documentation of both the container and the compression)
+- **Source:** "Programming Guide for DDS",
+  https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dx-graphics-dds-pguide, and
+  "Texture Block Compression in Direct3D 11",
+  https://learn.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11
+  (both reachable and on topic, checked 2026-11-09).
+- **License:** the format is publicly documented; **the license of that documentation belongs to
+  Microsoft and has not been verified**. No text or code was copied, so it imposes no conditions
+  on our own code.
+- **Verified in:** nothing verifiable in the repo — only the specification was read, and the
+  implementation is our own.
+- **Redistribution:** **No — only consulted.**
+- **Added:** 2026-08-22. Retired on 2026-08-27 with the texture-replacement pipeline, and
+  reinstated on 2026-11-09 for the preview window, which needs to decode the pixels and not just
+  validate the header.
+- **Where it is used:** [darkstractor/formats/dds.py](darkstractor/formats/dds.py). The previous,
+  header-only version is `git show b132e3e:darkstractor/formats/dds.py`.
+- **Use:** original implementation based on a publicly documented format.
+- **Modified?:** Not applicable — nothing external was taken to modify.
+- **What it gave us:** the 128-byte header layout (the `DDS ` magic, dimensions, mipmap count,
+  the pixel-format block with its FourCC and channel masks, and the DX10 block we reject), how
+  each mipmap level is laid out one after another, and the rules for decoding the blocks: the
+  565 endpoints and their interpolated palette in BC1 together with its three-colour
+  punch-through mode, the explicit four-bit alpha of BC2, the eight-step interpolated alpha of
+  BC3, and the single- and two-channel variants BC4 and BC5.
+
+### Portable Network Graphics (PNG) specification
+
+- **Author(s):** W3C (PNG Working Group); the Third Edition names its editors on the document
+  itself.
+- **Source:** "Portable Network Graphics (PNG) Specification (Third Edition)", W3C
+  Recommendation of 24 June 2025, https://www.w3.org/TR/png-3/ (checked 2026-11-09).
+- **License:** the specification is published under the **W3C Software and Document Notice and
+  License**, linked from the document itself (https://www.w3.org/copyright/software-license-2023/,
+  checked 2026-11-09). It is a permissive license, compatible with the MIT License of this
+  project, and nothing of its text was copied anyway.
+- **Verified in:** nothing verifiable in the repo — only the specification was read.
+- **Redistribution:** **No — only consulted.**
+- **Added:** 2026-11-09
+- **Where it is used:** [darkstractor/formats/dds.py](darkstractor/formats/dds.py), in `to_png`.
+- **Use:** consulted as a reference.
+- **Modified?:** Not applicable.
+- **What it gave us:** how to write the minimal PNG that Tk can load from memory: the signature,
+  the `IHDR`, `IDAT` and `IEND` chunks with their CRC-32, the colour types for greyscale, RGB and
+  RGBA, and the per-row filter byte. It is what lets the preview reach the interface without
+  writing any image to disk or depending on an external library.
+
 ## History
 
 Third-party components that were once tracked in this repository and no longer are, plus
@@ -214,10 +287,12 @@ entry moves here, dated, when the material it describes stops being used.
 
 ### darksiders.bms
 
-- **Author(s):** **Unknown — needs verification.** Header: "Darksiders (script 0.1.1) — script
-  for QuickBMS http://quickbms.aluigi.org". It declares neither author nor license.
-- **License:** **Unknown — needs verification.**
-- **Verified in:** `git show 289318a:darksiders.bms`
+- **Author(s):** **Luigi Auriemma** (`aluigi`), by publication: the script is served from his own
+  scripts directory (checked 2026-11-01). Its header — "Darksiders (script 0.1.1) — script for
+  QuickBMS http://quickbms.aluigi.org" — declares neither author nor license.
+- **License:** **None stated at the source** (see the OBPK entry for the three places checked).
+- **Verified in:** `git show 289318a:darksiders.bms`; origin at
+  http://aluigi.altervista.org/bms/darksiders.bms
 - **Redistributed:** **Yes, from 2026-08-22 to 2026-08-25** (95 lines). Removed in `c93ed7f`.
 - **Use:** copied verbatim while it was tracked; consulted as a reference afterwards.
 - **Modified?:** No.
@@ -225,10 +300,13 @@ entry moves here, dated, when the material it describes stops being used.
 
 ### darksiders2.bms
 
-- **Author(s):** **Unknown — needs verification.** Its header credits DS2extract and the ZenHAX
-  thread.
-- **License:** **Unknown — needs verification.**
-- **Verified in:** `git show 289318a:darksiders2.bms`
+- **Author(s):** **Luigi Auriemma** (`aluigi`), stated by himself: in ZenHAX thread t=2332
+  (2016-06-13) he links this script and calls it his own. Its header credits DS2extract and the
+  ZenHAX thread for the manifest information, but names no author.
+- **License:** **None stated at the source** (see the OBPK entry for the three places checked).
+- **Verified in:** `git show 289318a:darksiders2.bms`; authorship in the mirror
+  http://zenhax.com/viewtopic.php@t=2332&start=20.html, origin at
+  http://aluigi.altervista.org/bms/darksiders2.bms
 - **Redistributed:** **Yes, from 2026-08-22 to 2026-08-25** (131 lines). Removed in `c93ed7f`.
 - **Use:** copied verbatim while it was tracked; consulted as a reference afterwards.
 - **Modified?:** No.
@@ -237,10 +315,13 @@ entry moves here, dated, when the material it describes stops being used.
 
 ### darksiders2_pck.bms
 
-- **Author(s):** **Unknown — needs verification.** Header: "DarkSiders II core.pck — script for
-  QuickBMS http://quickbms.aluigi.org".
-- **License:** **Unknown — needs verification.**
-- **Verified in:** `git show 289318a:darksiders2_pck.bms`
+- **Author(s):** **Luigi Auriemma** (`aluigi`), by publication — see the AKPK entry below
+  for what that attribution rests on and what it does not. Header: "DarkSiders II core.pck —
+  script for QuickBMS http://quickbms.aluigi.org", with no author and no license.
+- **License:** **None stated at the source** (checked 2026-11-01; see the AKPK entry).
+- **Verified in:** `git show 289318a:darksiders2_pck.bms`; still online and byte-identical at
+  http://aluigi.altervista.org/bms/darksiders2_pck.bms — md5 `e48ea10fcc071f38b1c83454cbb5d083`
+  on both once line endings are normalised (344 bytes with LF here, 362 with CRLF there).
 - **Redistributed:** **Yes, from 2026-08-22 to 2026-08-25** (18 lines). Removed in `c93ed7f`.
 - **Use:** copied verbatim while it was tracked; consulted as a reference afterwards.
 - **Modified?:** No.
@@ -265,30 +346,20 @@ entry moves here, dated, when the material it describes stops being used.
 - **What it gave us:** checking whether `Darksiders2.exe` is still running before touching an
   installed UPAK.
 
-### DDS format and the DX10/DXGI extension
-
-- **Author(s):** Microsoft (public documentation of the format)
-- **Source:** the public DirectDraw Surface specification. **Not verified inside the repo.**
-- **License:** the format is publicly documented; **the license of that documentation belongs to
-  Microsoft and has not been verified**. No text or code was copied, so it imposes no conditions
-  on our own code.
-- **Redistribution:** **No.**
-- **Added:** 2026-08-22
-- **Where it was used:** `darkstractor/formats/dds.py` (deleted on 2026-08-27; the last tracked
-  version is `git show b132e3e:darkstractor/formats/dds.py`)
-- **Retired:** 2026-08-27. The header reader existed only to validate a replacement texture.
-  With the replacement pipeline gone, extraction writes each `.dds` member out byte for byte
-  without parsing it, so no knowledge of the format is in use any more.
-- **Use:** original implementation based on a publicly documented format.
-- **What it gave us:** validating DDS headers (the `DDS ` magic, the 124-byte header, FourCC,
-  mipmaps and the DX10 block) before accepting a replacement texture.
-
 ### Audiokinetic Wwise AKPK container
 
-- **Author(s):** Audiokinetic (the format); the specific description used comes from
-  `darksiders2_pck.bms`, whose author is **unknown — needs verification**.
-- **Source:** `git show 289318a:darksiders2_pck.bms`
-- **License:** **Unknown — needs verification.**
+- **Author(s):** Audiokinetic (the format). The specific description used comes from
+  `darksiders2_pck.bms`, published by **Luigi Auriemma** (`aluigi`) in his own scripts directory.
+  Checked on 2026-11-01: the file is served from `aluigi.altervista.org/bms/`, the directory
+  behind the "My scripts" list on his QuickBMS page, where externally contributed scripts are
+  instead flagged as not written by him. **The file itself credits nobody** and no post naming
+  its author was found, so the attribution rests on where it is published and on that author's
+  own `<game>_pck.bms` naming convention, not on a signature.
+- **Source:** `git show 289318a:darksiders2_pck.bms`; still online and byte-identical at
+  http://aluigi.altervista.org/bms/darksiders2_pck.bms (checked 2026-11-01)
+- **License:** **None stated at the source.** Checked on 2026-11-01 in the script's own header,
+  the QuickBMS scripts page and the official manual, which licenses only the tool. It therefore
+  stays **unverifiable**, not permissive by default.
 - **Redistribution:** **No.**
 - **Added:** 2026-08-22
 - **Where it was used:** `darkstractor/formats/akpk.py` (deleted on 2026-11-03; the last tracked
@@ -304,15 +375,25 @@ entry moves here, dated, when the material it describes stops being used.
 
 ## Open compliance obligations
 
-1. **Unverified licenses.** None of the sources above declares a license inside this repository.
-   As long as their code is not redistributed this imposes no obligations; **it would if any
-   `.bms` came back into the tree.** Under the MIT License the risk runs opposite to copyleft:
-   **this project cannot absorb GPL-licensed code or anything similar.** If QuickBMS or its
-   scripts turn out to be GPL of any version, bringing them in would force the whole of
-   Darkstractor to be relicensed under the GPL. Verify before reinstating any of them.
-2. **Unnamed authorship.** Several entries say "Unknown — needs verification" because the source
-   file credits nobody. If an author is identified — in the ZenHAX thread, for instance — the
-   entry must be completed here, without substituting a real name for a handle without evidence.
+1. **Licenses: the tool is settled, the scripts are not.** Audited on 2026-11-01. **QuickBMS is
+   GPL-2.0** (official manual, corroborated by its AUR package), so what the earlier wording left
+   as a hypothesis is now a fact: **its source code can never enter this MIT-licensed tree**,
+   since that would force the whole of Darkstractor to be relicensed under the GPL. Its
+   unmodified executable may be redistributed, but this project neither ships nor invokes it, so
+   nothing is owed. **The three `.bms` scripts state no license anywhere** — not in their headers,
+   not on the scripts page, not in the manual, which licenses only the tool. While no `.bms` is
+   tracked here that imposes no obligations; **reinstating one would mean asking its author
+   first**, because absent a license nothing grants the right to redistribute it, and the GPL of
+   the interpreter says nothing about the scripts it reads.
+2. **Authorship: identified, with one caveat.** The three scripts are attributed to **Luigi
+   Auriemma** (`aluigi`), whose real name his own site publishes; `darksiders2.bms` he states as
+   his own in ZenHAX t=2332. **`darksiders2_pck.bms` carries no signature**: it is attributed by
+   where it is published, which is weaker than a statement, so if evidence ever turns up that
+   someone else wrote it, this file must be corrected. DS2extract is `Sir Kane` and the manifest
+   thread is `zardalu`, handles kept as handles because no real name appears at the source. Left
+   open, outside the scope of that audit: **offzip**, **wwiser** and **vgmstream**. No code of
+   theirs is here — offzip is cited only as a behavioural reference, the other two only as tools
+   recommended to the user — so none of them imposes anything today.
 3. **No outstanding source-code obligations.** Since no third-party GPL or LGPL binaries are
    redistributed, there are no external license texts to ship and no corresponding source to
    offer. The only obligation in force is MIT's own: anyone redistributing Darkstractor must
