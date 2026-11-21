@@ -14,7 +14,7 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
 
 - The extraction progress bar now measures real progress instead of running an indeterminate
   marquee: the status line reports the percentage and the bytes read out of the total.
-- The GUI remembers the installation path, the output folder, the "separar recursos internos"
+- The GUI remembers the installation path, the output folder, the **Split internal resources**
   option and the duplicate policy between runs, in `%APPDATA%\Darkstractor\config.json`.
 - The command line checks the free space before extracting, as the GUI already did, and
   `--skip-space-check` skips that check when the reserve estimate is too pessimistic.
@@ -28,17 +28,36 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
 - A Windows executable built with PyInstaller, published from a tag. See the licensing note in
   [CREDITS.md](CREDITS.md) before publishing one.
 - A preview window for the DDS textures inside a package: double-click one, or select it and
-  press **Ver imagen**, and it is drawn without extracting anything. The decoder is pure Python
+  press **View image**, and it is drawn without extracting anything. The decoder is pure Python
   and covers DXT1, DXT3, DXT5, BC4, BC5 and the uncompressed 8, 16, 24 and 32-bit layouts, with
   colour, opaque and alpha-only views and power-of-two zoom. It opens on a version of at most
   512 px — a mipmap when the texture has them, one pixel out of every few when it does not —
-  and **Detalle completo** decodes it at up to 2048 px on request. Checked against all 15,254
+  and **Full detail** decodes it at up to 2048 px on request. Checked against all 15,254
   textures in the game: every header is read, and none uses the DX10 variant.
 - `read_member_bytes` reads a single package member into memory without touching the disk: it
   seeks straight to the chunk in the per-member variant, and in the single-stream one it stops
   inflating as soon as the member is complete.
+- The interface can be shown in English or Spanish. A **Language** selector in the top-right
+  corner of the GUI switches it at once, without restarting: labels, buttons, dialogs, the
+  status line, the summary and the preview window. The choice is saved in `config.json`. The
+  command line takes a global `--lang {en,es}` that goes before the subcommand and overrides the
+  saved choice; help, messages and errors follow it. What an extraction writes does not depend on
+  the language: generated names such as `archivo_00000`, `sin_nombre` or the default
+  `extraccion` folder stay the same in both.
 
 ### Changed
+
+- English is now the default language of the interface, also for existing installations: a
+  `config.json` written by an earlier version has no saved language, so the GUI opens in English
+  until Spanish is picked from the **Language** selector.
+- The duplicate policy is saved in `config.json` as a key (`rename`, `skip`, `overwrite`) instead
+  of the Spanish label of the drop-down. Files saved by earlier versions keep working: the old
+  labels (`Renombrar`, `Omitir`, `Sobrescribir`) are read and converted, and any other value
+  falls back to `rename`.
+- The internal type ids of OBP members are now neutral English identifiers (`obp-model`,
+  `obp-lighting`, `obp-collision`, `obp-font`, `obp-animation`, `obp-localization` and
+  `obp-type-N` for unknown types); only the label shown in the **Type** column and in `members`
+  is translated.
 
 - Sweeping zlib streams is 6.6x faster: measured over the real 471 MB `anim_streams.upak`,
   3.62 s down to 0.55 s, finding the same headers. The probe reuses the open file descriptor
@@ -59,6 +78,17 @@ from releases. `0.4.0` describes the state of the tree at commit `839467e`.
   from the source.
 - An extraction request that arrived while a worker was still alive was silently dropped but
   still reset the running operation's progress state.
+- An extraction that wrote nothing — every file already there with **Skip** selected — was
+  mistaken for an empty scan and cleared the list of containers. Each operation now says how its
+  result is handled instead of guessing from the result.
+- At the minimum window size (940x620) the row with the extraction buttons was cut off, and the
+  progress bar, the status line and the log did not show at all; at the default size the log
+  only had room for about two lines. The list and the log now share the remaining height three
+  to one, and the rows above and below them never shrink.
+- The **Filter** label vanished when the file row was too narrow, as it is at the minimum
+  width. The text field shrinks instead.
+- The duplicate-policy drop-down drew light text on a light background and could hardly be
+  read; it now uses the same dark style as the language selector.
 
 ### Removed
 

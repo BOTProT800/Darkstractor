@@ -3,14 +3,30 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import os
+import re
+import string
 import struct
 import shutil
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
+from darkstractor import cli
 from darkstractor.errors import DarkstractorError, FormatError
 from darkstractor.formats import dds
+from darkstractor.i18n import (
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
+    get_language,
+    resolve_language,
+    set_language,
+    t,
+)
+from darkstractor.locales import en, es
 from darkstractor.formats.bnk import parse_bank_media
 from darkstractor.formats.deathinitive_obp import parse_deathinitive_obp
 from darkstractor.formats.manifest import parse_manifest
@@ -22,18 +38,40 @@ from darkstractor.formats.zlib_stream import (
     find_next_stream,
 )
 from darkstractor.models import Entry
-from darkstractor.settings import load_settings, save_settings
+from darkstractor.settings import load_settings, resolve_collision, save_settings
 from darkstractor.service import (
     destination_for,
     estimate_source_bytes,
     extract_entries,
+    kind_label,
     list_obp_members,
     looks_like_game,
     read_member_bytes,
     safe_relative_path,
+    scan_game,
 )
 
 SCRATCH = Path(__file__).parent / ".tmp"
+PACKAGE = Path(__file__).resolve().parent.parent / "darkstractor"
+
+
+class LanguageMixin:
+    """Fija el idioma de cada test y deja el que hubiera al terminar.
+
+    El idioma activo es estado global del proceso: un test que lo cambia sin
+    restaurarlo haría depender a los siguientes del orden de ejecución.
+    """
+
+    language = DEFAULT_LANGUAGE
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._previous_language = get_language()
+        set_language(self.language)
+
+    def tearDown(self) -> None:
+        set_language(self._previous_language)
+        super().tearDown()
 
 
 def make_dds_file(
@@ -506,10 +544,34 @@ class SettingsTests(unittest.TestCase):
 
     def test_round_trip_drops_unknown_keys(self) -> None:
         save_settings(
-            {"game": "C:/juego", "collision": "Omitir", "inyectado": "no deberia sobrevivir"},
+            {"game": "C:/juego", "collision": "skip", "inyectado": "no deberia sobrevivir"},
             self.config,
         )
-        self.assertEqual(load_settings(self.config), {"game": "C:/juego", "collision": "Omitir"})
+        self.assertEqual(load_settings(self.config), {"game": "C:/juego", "collision": "skip"})
+
+    def test_the_language_survives_saving_and_loading(self) -> None:
+        save_settings({"language": "es"}, self.config)
+        self.assertEqual(load_settings(self.config), {"language": "es"})
+
+    def test_an_unknown_saved_language_falls_back_to_english(self) -> None:
+        self.config.write_text('{"language": "fr"}', encoding="utf-8")
+        self.assertEqual(load_settings(self.config), {"language": "en"})
+
+    def test_the_old_collision_labels_are_migrated_to_their_keys(self) -> None:
+        # Así guardaban la política las versiones anteriores: con la etiqueta
+        # española del desplegable.
+        for label, policy in (("Renombrar", "rename"), ("Omitir", "skip"), ("Sobrescribir", "overwrite")):
+            with self.subTest(label=label):
+                self.assertEqual(resolve_collision(label), policy)
+                self.config.write_text(f'{{"collision": "{label}"}}', encoding="utf-8")
+                self.assertEqual(load_settings(self.config), {"collision": policy})
+
+    def test_collision_keys_pass_and_anything_else_becomes_rename(self) -> None:
+        for policy in ("rename", "skip", "overwrite"):
+            self.assertEqual(resolve_collision(policy), policy)
+        for junk in (None, "", "Rename", "omitir", 3, ["skip"]):
+            with self.subTest(junk=junk):
+                self.assertEqual(resolve_collision(junk), "rename")
 
     def test_a_missing_file_is_not_an_error(self) -> None:
         self.assertEqual(load_settings(SCRATCH / "no_existe.json"), {})
@@ -558,7 +620,7 @@ def png_contents(blob: bytes) -> tuple[int, int, int, bytes]:
     return width, height, colour, zlib.decompress(payload)
 
 
-class DdsDecodingTests(unittest.TestCase):
+class DdsDecodingTests(LanguageMixin, unittest.TestCase):
     def test_decodes_a_bc1_block_into_its_four_colours(self) -> None:
         block = bc1_block(RED565, BLUE565, [0, 1, 2, 3] * 4)
         image = dds.decode(make_dds_file(block))
@@ -675,19 +737,36 @@ class DdsDecodingTests(unittest.TestCase):
         self.assertEqual(tuple(preview.rgb), (0x30, 0x20, 0, 0x30, 0x20, 2))
         self.assertEqual(tuple(preview.alpha), (0xFF, 0xFF))
 
-    def test_reads_single_byte_luminance(self) -> None:
+    @staticmethod
+    def _luminance_texture() -> bytes:
         # El formato de los atlas de fuentes: un byte de gris por píxel.
-        data = make_dds_file(
+        return make_dds_file(
             bytes(range(16)),
             fourcc=None,
             bits=8,
             masks=(0xFF, 0, 0, 0),
             pixel_flags=0x20000,
         )
-        image = dds.decode(data)
-        self.assertEqual(image.header.label, "Luminancia 8 bits")
+
+    def test_reads_single_byte_luminance(self) -> None:
+        image = dds.decode(self._luminance_texture())
+        self.assertEqual(image.header.label, "Luminance 8 bits")
         self.assertEqual(tuple(image.rgb[9:15]), (3, 3, 3, 4, 4, 4))
         self.assertIsNone(image.alpha)
+
+    def test_labels_luminance_in_spanish(self) -> None:
+        set_language("es")
+        image = dds.decode(self._luminance_texture())
+        self.assertEqual(image.header.label, "Luminancia 8 bits")
+
+    def test_an_open_texture_is_described_in_the_current_language(self) -> None:
+        # La etiqueta se calcula al leerla: cambiar de idioma con la vista
+        # previa abierta no deja la descripción en el idioma anterior.
+        image = dds.decode(self._luminance_texture())
+        set_language("es")
+        self.assertEqual(image.header.label, "Luminancia 8 bits")
+        set_language("en")
+        self.assertEqual(image.header.label, "Luminance 8 bits")
 
     def test_scales_channels_narrower_than_a_byte(self) -> None:
         # A4R4G4B4: alfa 8, rojo 15, verde 4 y azul 0, cada uno en cuatro bits.
@@ -776,6 +855,223 @@ class MemberReadingTests(unittest.TestCase):
                 read_member_bytes(members[1], limit=16)
         finally:
             source.unlink(missing_ok=True)
+
+
+def placeholders(template: str) -> set[tuple[str, str, str | None]]:
+    """Marcadores de ``str.format``: nombre, formato y conversión de cada uno."""
+    return {
+        (field, spec or "", conversion)
+        for _literal, field, spec, conversion in string.Formatter().parse(template)
+        if field is not None
+    }
+
+
+#: Una clave del catálogo escrita como literal en el código.
+KEY_LITERAL = re.compile(
+    r"""["']((?:binary|cli|dds|dialog|error|gui|kind|log|note|preview|status|summary)\.[a-z0-9_]+)["']"""
+)
+
+
+def keys_used_in_code() -> dict[str, list[str]]:
+    used: dict[str, list[str]] = {}
+    for path in PACKAGE.rglob("*.py"):
+        if "locales" in path.parts:
+            continue
+        for key in KEY_LITERAL.findall(path.read_text(encoding="utf-8")):
+            used.setdefault(key, []).append(path.name)
+    return used
+
+
+class TranslationCatalogTests(unittest.TestCase):
+    """Los dos catálogos tienen que poder intercambiarse sin romper nada."""
+
+    def test_both_catalogs_have_exactly_the_same_keys(self) -> None:
+        self.assertEqual(sorted(set(en.MESSAGES) - set(es.MESSAGES)), [])
+        self.assertEqual(sorted(set(es.MESSAGES) - set(en.MESSAGES)), [])
+
+    def test_each_key_uses_the_same_placeholders_in_both_languages(self) -> None:
+        for key, english in en.MESSAGES.items():
+            with self.subTest(key=key):
+                self.assertEqual(placeholders(english), placeholders(es.MESSAGES[key]))
+
+    def test_no_text_is_empty(self) -> None:
+        for name, catalog in (("en", en.MESSAGES), ("es", es.MESSAGES)):
+            for key, value in catalog.items():
+                with self.subTest(language=name, key=key):
+                    self.assertTrue(value.strip())
+
+    def test_every_key_the_code_asks_for_exists(self) -> None:
+        missing = {key: files for key, files in keys_used_in_code().items() if key not in en.MESSAGES}
+        self.assertEqual(missing, {})
+
+    def test_every_key_in_the_catalog_is_used(self) -> None:
+        # Las claves kind.* se piden con el id del tipo, no como literal.
+        unused = set(en.MESSAGES) - set(keys_used_in_code())
+        self.assertEqual(sorted(key for key in unused if not key.startswith("kind.")), [])
+
+    def test_translated_kinds_are_real_obp_type_ids(self) -> None:
+        from darkstractor.service import OBP_TYPE_INFO
+
+        ids = {identifier for _extension, identifier in OBP_TYPE_INFO.values()}
+        kinds = {key.removeprefix("kind.") for key in en.MESSAGES if key.startswith("kind.")}
+        self.assertEqual(kinds - ids, {"unknown"})
+
+    def test_each_language_is_named_in_its_own_tongue(self) -> None:
+        self.assertEqual(SUPPORTED_LANGUAGES, {"en": "English", "es": "Español"})
+        self.assertEqual(DEFAULT_LANGUAGE, "en")
+
+
+class TranslateTests(LanguageMixin, unittest.TestCase):
+    def test_a_key_that_does_not_exist_does_not_raise(self) -> None:
+        self.assertEqual(t("no.existe.esta.clave"), "no.existe.esta.clave")
+        set_language("es")
+        self.assertEqual(t("no.existe.esta.clave", name="x"), "no.existe.esta.clave")
+
+    def test_missing_parameters_do_not_raise(self) -> None:
+        self.assertEqual(t("error.unsafe_path"), en.MESSAGES["error.unsafe_path"])
+
+    def test_a_key_missing_in_the_active_language_falls_back_to_english(self) -> None:
+        set_language("es")
+        with mock.patch.dict(es.MESSAGES):
+            del es.MESSAGES["gui.scan"]
+            self.assertEqual(t("gui.scan"), "Scan")
+        self.assertEqual(t("gui.scan"), "Analizar")
+
+    def test_fills_named_parameters_and_keeps_number_formatting(self) -> None:
+        self.assertEqual(
+            t("status.visible_entries", context="media.upak", count=12345),
+            "media.upak: 12,345 visible entries",
+        )
+        set_language("es")
+        self.assertEqual(
+            t("status.visible_entries", context="media.upak", count=12345),
+            "media.upak: 12,345 entradas visibles",
+        )
+
+    def test_resolve_language(self) -> None:
+        self.assertEqual(resolve_language(None), "en")
+        self.assertEqual(resolve_language("fr"), "en")
+        self.assertEqual(resolve_language("es"), "es")
+        self.assertEqual(set_language("fr"), "en")
+        self.assertEqual(get_language(), "en")
+
+
+class LocalizedOutputTests(LanguageMixin, unittest.TestCase):
+    """Lo que ve la persona cambia de idioma; lo que se extrae, no."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.empty = SCRATCH / "carpeta_vacia"
+        self.empty.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.empty, ignore_errors=True)
+        super().tearDown()
+
+    def test_a_real_error_comes_out_in_english_by_default(self) -> None:
+        with self.assertRaises(DarkstractorError) as caught:
+            scan_game(self.empty)
+        self.assertEqual(str(caught.exception), f"media\\manifest.bin was not found in {self.empty}")
+
+    def test_a_real_error_comes_out_in_spanish_with_es(self) -> None:
+        set_language("es")
+        with self.assertRaises(DarkstractorError) as caught:
+            scan_game(self.empty)
+        self.assertEqual(str(caught.exception), f"No se encontró media\\manifest.bin en {self.empty}")
+
+    def test_kind_ids_are_neutral_and_only_their_label_is_translated(self) -> None:
+        data = make_obp([(2, b"", b"MODEL" + bytes(16)), (13, b"", b"raro"), (6, b"", make_dds())], named=False)
+        source = SCRATCH / "tipos.upak"
+        try:
+            source.write_bytes(data)
+            outer = Entry("tipos.", 0, len(data), source, "upak-segment")
+            for language in ("en", "es"):
+                with self.subTest(language=language):
+                    set_language(language)
+                    members = list_obp_members(outer)
+                    # Ni los ids ni los nombres generados dependen del idioma.
+                    self.assertEqual([m.kind for m in members], ["obp-model", "obp-type-13", "obp-dds"])
+                    self.assertEqual(
+                        [m.name for m in members],
+                        ["tipos/archivo_00000.2", "tipos/archivo_00001.13", "tipos/archivo_00002.dds"],
+                    )
+            set_language("en")
+            self.assertEqual([kind_label(m.kind) for m in members], ["model", "type 13", "dds"])
+            set_language("es")
+            self.assertEqual([kind_label(m.kind) for m in members], ["modelo", "tipo 13", "dds"])
+        finally:
+            source.unlink(missing_ok=True)
+
+    def test_container_notes_are_keys(self) -> None:
+        root = SCRATCH / "juego_minimo"
+        try:
+            (root / "media").mkdir(parents=True, exist_ok=True)
+            (root / "Darksiders2.exe").write_bytes(b"x")
+            (root / "media" / "manifest.bin").write_bytes(make_manifest([b"ui"], [b"media"], []))
+            (root / "media" / "scripts.obsp").write_bytes(b"x")
+            archives = scan_game(root)
+            self.assertEqual([archive.note for archive in archives], ["note.loose"])
+            self.assertEqual(t(archives[0].note), "Loose file from media (copied as is)")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+class CliLanguageTests(LanguageMixin, unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # Aislado del config.json real de quien ejecuta los tests.
+        self.appdata = SCRATCH / "appdata_cli"
+        self.appdata.mkdir(parents=True, exist_ok=True)
+        patcher = mock.patch.dict(os.environ, {"APPDATA": str(self.appdata)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.appdata, ignore_errors=True)
+        super().tearDown()
+
+    def _run(self, *argv: str) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as caught:
+                cli.main(list(argv))
+        return caught.exception.code, stdout.getvalue(), stderr.getvalue()
+
+    def _save_language(self, code: str) -> None:
+        save_settings({"language": code}, self.appdata / "Darkstractor" / "config.json")
+
+    def test_the_help_is_in_english_by_default(self) -> None:
+        code, out, _err = self._run("--help")
+        self.assertEqual(code, 0)
+        self.assertIn("Darksiders II Deathinitive Edition extractor", out)
+        self.assertIn("show the inventory", out)
+
+    def test_lang_es_changes_the_help(self) -> None:
+        code, out, _err = self._run("--lang", "es", "--help")
+        self.assertEqual(code, 0)
+        self.assertIn("Extractor de Darksiders II Deathinitive Edition", out)
+        self.assertIn("mostrar el inventario", out)
+        self.assertIn("idioma de la interfaz", out)
+
+    def test_the_saved_language_applies_and_lang_overrides_it(self) -> None:
+        self._save_language("es")
+        _code, out, _err = self._run("--help")
+        self.assertIn("mostrar el inventario", out)
+        _code, out, _err = self._run("--lang", "en", "--help")
+        self.assertIn("show the inventory", out)
+
+    def test_cli_errors_follow_the_language(self) -> None:
+        empty = str(SCRATCH / "no_hay_juego")
+        code, _out, err = self._run("--lang", "es", "scan", "--game", empty)
+        self.assertEqual(code, 2)
+        self.assertIn("error: No se encontró media\\manifest.bin", err)
+        code, _out, err = self._run("scan", "--game", empty)
+        self.assertIn("error: media\\manifest.bin was not found", err)
+
+    def test_an_unknown_language_is_rejected(self) -> None:
+        code, _out, err = self._run("--lang", "fr", "scan")
+        self.assertEqual(code, 2)
+        self.assertIn("--lang", err)
 
 
 if __name__ == "__main__":

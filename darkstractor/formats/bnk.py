@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..binary import BinaryReader
 from ..errors import FormatError
+from ..i18n import t
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,7 @@ def parse_bank_media(path: Path, *, base: int = 0, size: int | None = None) -> l
     with path.open("rb") as file:
         reader = BinaryReader(file, base=base, size=size, label=str(path))
         if reader.size < 8 or reader.read(4) != b"BKHD":
-            raise FormatError(f"{path.name} no es un SoundBank de Wwise")
+            raise FormatError(t("error.bnk_not_bank", name=path.name))
         reader.seek(0)
 
         index: tuple[int, int] | None = None
@@ -41,7 +42,7 @@ def parse_bank_media(path: Path, *, base: int = 0, size: int | None = None) -> l
             section_size = reader.u32()
             start = reader.tell()
             if section_size > reader.size - start:
-                raise FormatError(f"La sección {tag!r} desborda el banco {path.name}")
+                raise FormatError(t("error.bnk_section", tag=tag, name=path.name))
             if tag == b"DIDX":
                 index = (start, section_size)
             elif tag == b"DATA":
@@ -59,6 +60,6 @@ def parse_bank_media(path: Path, *, base: int = 0, size: int | None = None) -> l
             offset = reader.u32()
             length = reader.u32()
             if offset > payload_size or length > payload_size - offset:
-                raise FormatError(f"El índice DIDX de {path.name} apunta fuera de DATA")
+                raise FormatError(t("error.bnk_index", name=path.name))
             media.append(BankMedia(file_id, payload_start + offset, length))
         return media

@@ -12,6 +12,7 @@ from threading import Event
 from typing import BinaryIO, Callable
 
 from ..errors import CancelledError, FormatError
+from ..i18n import t
 
 #: Recibe bytes leídos del archivo de origen, nunca bytes ya
 #: descomprimidos: el total se conoce antes de empezar.
@@ -81,7 +82,7 @@ def _probe(file: BinaryIO, offset: int, end: int) -> bool:
 
 def find_next_stream(path: Path, start: int, end: int, *, scan_limit: int | None = None) -> int | None:
     if not 0 <= start <= end <= path.stat().st_size:
-        raise FormatError("Rango zlib fuera del archivo")
+        raise FormatError(t("error.zlib_range"))
     scan_end = min(end, start + scan_limit) if scan_limit is not None else end
     chunk_size = 1024 * 1024
     cursor = start
@@ -134,7 +135,7 @@ def extract_stream(
             remaining = end - offset
             while remaining and not decoder.eof:
                 if cancel and cancel.is_set():
-                    raise CancelledError("Extracción cancelada")
+                    raise CancelledError(t("error.extraction_cancelled"))
                 chunk = source.read(min(1024 * 1024, remaining))
                 if not chunk:
                     break
@@ -152,7 +153,7 @@ def extract_stream(
                 if decoder.unused_data:
                     break
             if not decoder.eof:
-                raise FormatError(f"Stream zlib incompleto en 0x{offset:x}")
+                raise FormatError(t("error.zlib_incomplete", offset=offset))
             output = decoder.flush()
             if output:
                 if not magic:
@@ -163,7 +164,7 @@ def extract_stream(
             os.fsync(target.fileno())
         if expected_size is not None and expected_size > 0 and unpacked != expected_size:
             raise FormatError(
-                f"Tamaño zlib inesperado en 0x{offset:x}: {unpacked} (esperado {expected_size})"
+                t("error.zlib_size", offset=offset, got=unpacked, expected=expected_size)
             )
         os.replace(temporary, destination)
         return ZlibStream(offset, compressed_read, unpacked, magic)

@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .formats.dds import DecodedImage, to_png
+from .i18n import t
 
 #: Lado máximo que se decodifica al abrir. Por encima de esto la vista previa
 #: tarda más de lo que aporta, y el detalle completo está a un botón.
@@ -26,11 +27,12 @@ PREVIEW_MAX_SIDE = 512
 #: el PNG intermedio y la copia de Tk, para una ventana que no puede enseñarlas.
 FULL_DETAIL_MAX_SIDE = 2048
 
-#: Etiqueta de la interfaz y modo que entiende `to_png`.
+#: Modo que entiende `to_png` y clave de su etiqueta en el desplegable. La
+#: ventana trabaja con el modo; la etiqueta solo se usa para enseñarlo.
 VIEW_MODES = {
-    "Color": "color",
-    "Sin alfa": "opaque",
-    "Solo alfa": "alpha",
+    "color": "preview.mode_color",
+    "opaque": "preview.mode_opaque",
+    "alpha": "preview.mode_alpha",
 }
 
 #: Pasos de zoom como (ampliar, reducir), los dos enteros que acepta Tk.
@@ -46,7 +48,6 @@ class ImageWindow(tk.Toplevel):
 
     def __init__(self, master: tk.Misc, *, on_full_detail=None) -> None:
         super().__init__(master)
-        self.title("Vista previa")
         self.geometry("900x720")
         self.minsize(420, 320)
         self.configure(bg="#111317")
@@ -62,8 +63,10 @@ class ImageWindow(tk.Toplevel):
         self.base_source: tuple[DecodedImage, str] | None = None
         self.zoom_index = 3
         self.fitted = True
+        #: Modo de `VIEW_MODES` elegido; `mode_var` solo guarda su etiqueta.
+        self.mode = "color"
 
-        self.mode_var = tk.StringVar(value="Color")
+        self.mode_var = tk.StringVar()
         self.info_var = tk.StringVar(value="")
         self.zoom_var = tk.StringVar(value="100%")
 
@@ -82,23 +85,24 @@ class ImageWindow(tk.Toplevel):
 
         bar = ttk.Frame(self, style="Panel.TFrame", padding=(10, 8))
         bar.pack(fill="x")
-        ttk.Label(bar, text="Ver", background="#1a1e24", foreground="#9299a6").pack(side="left")
+        self.view_label = ttk.Label(bar, background="#1a1e24", foreground="#9299a6")
+        self.view_label.pack(side="left")
         self.mode_box = ttk.Combobox(
             bar,
             textvariable=self.mode_var,
-            values=tuple(VIEW_MODES),
             state="readonly",
             width=10,
             style="Preview.TCombobox",
         )
         self.mode_box.pack(side="left", padx=(6, 14))
-        self.mode_box.bind("<<ComboboxSelected>>", lambda _event: self.render())
+        self.mode_box.bind("<<ComboboxSelected>>", self._on_mode_selected)
 
         ttk.Button(bar, text="−", width=3, command=lambda: self.step_zoom(-1)).pack(side="left")
         ttk.Label(bar, textvariable=self.zoom_var, background="#1a1e24", width=6).pack(side="left", padx=4)
         ttk.Button(bar, text="+", width=3, command=lambda: self.step_zoom(1)).pack(side="left")
-        ttk.Button(bar, text="Ajustar", command=self.fit).pack(side="left", padx=(8, 0))
-        self.detail_button = ttk.Button(bar, text="Detalle completo", command=self._request_detail)
+        self.fit_button = ttk.Button(bar, command=self.fit)
+        self.fit_button.pack(side="left", padx=(8, 0))
+        self.detail_button = ttk.Button(bar, command=self._request_detail)
         self.detail_button.pack(side="left", padx=(8, 0))
 
         body = ttk.Frame(self, style="Panel.TFrame")
@@ -120,6 +124,31 @@ class ImageWindow(tk.Toplevel):
         self.bind("<Escape>", lambda _event: self.withdraw())
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
         self.canvas.bind("<Configure>", self._on_resize)
+        self.apply_language()
+
+    def apply_language(self) -> None:
+        """Reasigna los textos al idioma activo sin perder el modo elegido."""
+        self._update_title()
+        self.view_label.configure(text=t("preview.view"))
+        self.fit_button.configure(text=t("preview.fit"))
+        self.detail_button.configure(text=t("preview.full_detail"))
+        self.mode_box.configure(values=[t(key) for key in VIEW_MODES.values()])
+        self._set_mode(self.mode)
+        if self.image is not None:
+            self.info_var.set(self._describe(self.image))
+
+    def _update_title(self) -> None:
+        self.title(t("preview.title_named", name=self.name) if self.name else t("preview.title"))
+
+    def _set_mode(self, mode: str) -> None:
+        self.mode = mode if mode in VIEW_MODES else "color"
+        self.mode_var.set(t(VIEW_MODES[self.mode]))
+
+    def _on_mode_selected(self, _event=None) -> None:
+        index = self.mode_box.current()
+        if 0 <= index < len(VIEW_MODES):
+            self.mode = tuple(VIEW_MODES)[index]
+        self.render()
 
     def show(self, name: str, image: DecodedImage, *, full_detail: bool = False) -> None:
         """Carga una textura y deja la ventana al frente.
@@ -132,9 +161,9 @@ class ImageWindow(tk.Toplevel):
         self.name = name
         self.image = image
         self.capped = full_detail and image.reduced
-        self.title(f"Vista previa — {name}")
+        self._update_title()
         if image.alpha is None:
-            self.mode_var.set("Color")
+            self._set_mode("color")
         self.mode_box.configure(state="readonly" if image.alpha is not None else "disabled")
         self.detail_button.configure(
             state="normal" if image.reduced and not full_detail else "disabled"
@@ -221,7 +250,7 @@ class ImageWindow(tk.Toplevel):
         if self.image is None:
             return
         image = self.image
-        mode = VIEW_MODES.get(self.mode_var.get(), "color")
+        mode = self.mode
         if mode == "alpha" and image.alpha is None:
             mode = "color"
         # Empaquetar el PNG y cargarlo en Tk es lo caro (casi un segundo a
@@ -256,16 +285,18 @@ class ImageWindow(tk.Toplevel):
         parts = [
             header.label,
             f"{header.width}x{header.height}",
-            f"{header.mipmaps} mipmaps" if header.mipmaps > 1 else "sin mipmaps",
-            "con alfa" if image.alpha is not None else "opaca",
+            t("preview.mipmaps", count=header.mipmaps) if header.mipmaps > 1 else t("preview.no_mipmaps"),
+            t("preview.with_alpha") if image.alpha is not None else t("preview.opaque"),
         ]
         if image.reduced:
-            detail = f"vista reducida a {image.width}x{image.height}"
+            size = {"width": image.width, "height": image.height}
             if image.level:
-                detail += f" (mipmap {image.level})"
+                detail = t("preview.reduced_mipmap", level=image.level, **size)
+            else:
+                detail = t("preview.reduced", **size)
             if self.capped:
-                detail += ", el máximo que dibuja la vista previa"
+                detail = t("preview.capped", detail=detail)
             parts.append(detail)
         else:
-            parts.append("detalle completo")
+            parts.append(t("preview.complete"))
         return "  •  ".join(parts)

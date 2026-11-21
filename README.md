@@ -27,6 +27,7 @@ out into the output folder you pick, and the game files are left exactly as they
 - Previews DDS textures inside the interface, without extracting them: DXT1, DXT3, DXT5, BC4,
   BC5 and the uncompressed layouts, with colour, opaque and alpha-only views.
 - Includes search, multiple selection, cancellation and safe policies for duplicate files.
+- Interface, command line and messages in English or Spanish, switchable while it runs.
 - Requires no QuickBMS, no offzip and no external Python packages.
 
 ## Quick start
@@ -49,17 +50,23 @@ The default path already points to:
 C:\Program Files (x86)\Steam\steamapps\common\Darksiders II Deathinitive Edition
 ```
 
-1. Press **Analizar**.
+1. Press **Scan**.
 2. Pick a container on the left.
 3. Filter or select resources in the list on the right.
-4. Press **Abrir paquete** — or double-click — to view and select its DDS files, models,
+4. Press **Open package** — or double-click — to view and select its DDS files, models,
    materials and other internal files.
-5. Double-click a DDS — or select it and press **Ver imagen** — to look at it before deciding.
-   The preview opens on a reduced version; **Detalle completo** decodes it at up to 2048 px.
-6. Choose the output folder and press **Extraer selección**.
+5. Double-click a DDS — or select it and press **View image** — to look at it before deciding.
+   The preview opens on a reduced version; **Full detail** decodes it at up to 2048 px.
+6. Choose the output folder and press **Extract selection**.
 
-The **Separar recursos internos** option extracts each member under its own name. Turning it off
+The **Split internal resources** option extracts each member under its own name. Turning it off
 keeps the secondary segments as `.obp`.
+
+The interface starts in English. The **Language** selector in the top-right corner switches it
+to Spanish (or back) at once, without restarting, and the choice is remembered. On the command
+line, `--lang en` or `--lang es` goes before the subcommand and overrides the saved choice for
+that run. The language never changes what an extraction produces: file and folder names stay
+the same in both.
 
 ## Command line
 
@@ -89,6 +96,12 @@ python -m darkstractor extract --output .\extraccion --archive media.upak --filt
 
 Use `--raw` to keep UPAK segments as `.obp`, and `--overwrite` to overwrite existing files. By
 default, duplicates get a numeric suffix.
+
+Help, messages and errors in Spanish:
+
+```powershell
+python -m darkstractor --lang es --help
+```
 
 ## What each container produces
 

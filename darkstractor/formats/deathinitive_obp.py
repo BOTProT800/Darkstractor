@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 
 from ..binary import BinaryReader
 from ..errors import FormatError
+from ..i18n import t
 
 
 #: Payload único: un solo stream zlib con todos los miembros concatenados.
@@ -50,12 +51,12 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
     if size is None:
         size = file_size - base
     if base < 0 or size < 0 or base + size > file_size:
-        raise FormatError("Segmento OBP fuera del archivo")
+        raise FormatError(t("error.obp_outside"))
 
     with path.open("rb") as file:
         reader = BinaryReader(file, base=base, size=size, label=f"{path}@0x{base:x}")
         if reader.read(5) != b"OBPK\0":
-            raise FormatError("El segmento no comienza con OBPK")
+            raise FormatError(t("error.obp_magic"))
 
         header = [reader.u32() for _ in range(6)]
         variant = reader.u8()
@@ -65,9 +66,9 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
         metadata_size = header[4]
         payload_offset = header[5]
         if not 0 < table_offset < names_end <= names_end + metadata_size <= payload_offset < size:
-            raise FormatError("Offsets de cabecera OBP inválidos")
+            raise FormatError(t("error.obp_header_offsets"))
         if names_end - table_offset != table_size:
-            raise FormatError("La cabecera OBP no concuerda con el tamaño de su tabla")
+            raise FormatError(t("error.obp_table_size"))
         reader.seek(table_offset)
 
         group_count = reader.u32()
@@ -75,11 +76,11 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
         hash_table_size = reader.u32()
         reader.u32()
         if group_count > 100_000 or file_count > 10_000_000:
-            raise FormatError("Cantidad inválida de grupos o archivos OBP")
+            raise FormatError(t("error.obp_counts"))
         if file_count == 0:
-            raise FormatError("La tabla OBP no declara ningún archivo")
+            raise FormatError(t("error.obp_no_files"))
         if metadata_size < 4 * file_count:
-            raise FormatError("El bloque de metadatos OBP no cabe la tabla de tamaños")
+            raise FormatError(t("error.obp_metadata"))
         reader.seek(hash_table_size, 1)
 
         for _ in range(4):
@@ -92,12 +93,12 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
             reader.u32()
             reader.u32()
             if member_count > file_count or reader.tell() + member_count > names_end:
-                raise FormatError("Grupo OBP con demasiados elementos")
+                raise FormatError(t("error.obp_group"))
             reader.read(member_count)
             type_ids.extend([type_id] * member_count)
         if len(type_ids) != file_count:
             raise FormatError(
-                f"La tabla OBP declara {file_count} archivos, pero sus grupos contienen {len(type_ids)}"
+                t("error.obp_group_total", files=file_count, grouped=len(type_ids))
             )
 
         # Muchos paquetes de mapas guardan solo los hashes y omiten los nombres:
@@ -111,7 +112,7 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
                 reader.u32()
                 length = reader.u32()
                 if reader.tell() + length > names_end:
-                    raise FormatError("Un nombre OBP se sale de su tabla")
+                    raise FormatError(t("error.obp_name"))
                 names.append(reader.read(length).decode("utf-8", "replace"))
         while len(names) < file_count:
             names.append(f"archivo_{len(names):05d}")
@@ -123,14 +124,14 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
         if variant == VARIANT_CHUNK_PER_MEMBER:
             return _chunked_members(reader, labels, type_ids, table, payload_offset, size)
         if variant != VARIANT_SINGLE_STREAM:
-            raise FormatError(f"Variante OBP no soportada: {variant}")
+            raise FormatError(t("error.obp_variant", variant=variant))
 
         reader.seek(payload_offset)
         declared_unpacked_size = reader.u32()
         stream_offset = reader.tell()
         compressed_size = size - stream_offset
         if declared_unpacked_size <= 0 or compressed_size <= 0:
-            raise FormatError("Tamaño del payload OBP fuera de rango")
+            raise FormatError(t("error.obp_payload_size"))
 
         members: list[ObpMember] = []
         unpacked_offset = 0
@@ -140,8 +141,7 @@ def parse_deathinitive_obp(path: Path, *, base: int = 0, size: int | None = None
 
         if declared_unpacked_size != unpacked_offset:
             raise FormatError(
-                f"La tabla OBP suma {unpacked_offset} bytes, "
-                f"pero el payload declara {declared_unpacked_size}"
+                t("error.obp_sum", total=unpacked_offset, declared=declared_unpacked_size)
             )
         return DeathinitiveObp(members, stream_offset, compressed_size, unpacked_offset)
 
@@ -161,12 +161,12 @@ def _chunked_members(
     buscarlo chunk por chunk.
     """
     if offsets[0] != payload_offset:
-        raise FormatError("El primer chunk OBP no empieza donde dice la cabecera")
+        raise FormatError(t("error.obp_first_chunk"))
     for previous, following in zip(offsets, offsets[1:]):
         if previous >= following:
-            raise FormatError("Los offsets de chunk OBP no crecen")
+            raise FormatError(t("error.obp_chunk_order"))
     if offsets[-1] + 4 >= size:
-        raise FormatError("El último chunk OBP se sale del segmento")
+        raise FormatError(t("error.obp_last_chunk"))
 
     members: list[ObpMember] = []
     unpacked_offset = 0
@@ -174,7 +174,7 @@ def _chunked_members(
         reader.seek(chunk_offset)
         member_size = reader.u32()
         if member_size <= 0:
-            raise FormatError(f"El chunk OBP {index} declara un tamaño inválido")
+            raise FormatError(t("error.obp_chunk_declared", index=index))
         members.append(ObpMember(name, type_id, unpacked_offset, member_size, chunk_offset))
         unpacked_offset += member_size
 

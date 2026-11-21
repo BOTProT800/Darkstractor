@@ -20,6 +20,7 @@ import zlib
 from dataclasses import dataclass
 
 from ..errors import FormatError
+from ..i18n import t
 
 MAGIC = b"DDS "
 HEADER_SIZE = 128
@@ -69,12 +70,24 @@ class DdsHeader:
     mipmaps: int
     #: Clave interna: BC1..BC5 o ``RAW``.
     kind: str
-    #: Etiqueta para la interfaz: DXT5, RGB 32 bits…
-    label: str
+    #: Nombre del formato comprimido tal como se enseña (DXT5, ATI2 (BC5)…).
+    #: Vacío en las texturas sin comprimir, que se describen con `label`.
+    format_name: str
     bits: int = 0
     masks: tuple[int, int, int, int] = (0, 0, 0, 0)
     has_alpha: bool = False
     luminance: bool = False
+
+    @property
+    def label(self) -> str:
+        """Etiqueta para la interfaz: DXT5, RGB 32 bits…
+
+        Se calcula al leerla para que una textura ya abierta se describa en el
+        idioma activo, no en el que había al decodificarla.
+        """
+        if self.kind != "RAW":
+            return self.format_name
+        return t("dds.luminance" if self.luminance else "dds.rgb", bits=self.bits)
 
 
 @dataclass(slots=True)
@@ -101,25 +114,25 @@ class DecodedImage:
 def parse_header(data: bytes) -> DdsHeader:
     """Lee la cabecera DDS y decide cómo hay que decodificar los píxeles."""
     if len(data) < HEADER_SIZE or data[:4] != MAGIC:
-        raise FormatError("El archivo no empieza por la firma DDS")
+        raise FormatError(t("error.dds_signature"))
     if struct.unpack_from("<I", data, 4)[0] != 124:
-        raise FormatError("Cabecera DDS con tamaño inesperado")
+        raise FormatError(t("error.dds_header_size"))
 
     height, width = struct.unpack_from("<II", data, 12)
     mipmaps = struct.unpack_from("<I", data, 28)[0] or 1
     pf_flags, fourcc = struct.unpack_from("<I4s", data, 80)
     bits, red, green, blue, alpha = struct.unpack_from("<IIIII", data, 88)
     if not 0 < width <= 32768 or not 0 < height <= 32768:
-        raise FormatError(f"Dimensiones DDS fuera de rango: {width}x{height}")
+        raise FormatError(t("error.dds_dimensions", width=width, height=height))
 
     if pf_flags & _PF_FOURCC:
         if fourcc == b"DX10":
             dxgi = struct.unpack_from("<I", data, HEADER_SIZE)[0] if len(data) >= 132 else 0
-            raise FormatError(f"DDS en variante DX10 (formato DXGI {dxgi}), no soportada")
+            raise FormatError(t("error.dds_dx10", dxgi=dxgi))
         kind = _FOURCC_FORMATS.get(fourcc)
         if kind is None:
             readable = fourcc.decode("latin-1").strip() or fourcc.hex()
-            raise FormatError(f"Compresión DDS no soportada: {readable}")
+            raise FormatError(t("error.dds_compression", name=readable))
         return DdsHeader(
             width,
             height,
@@ -130,7 +143,7 @@ def parse_header(data: bytes) -> DdsHeader:
         )
 
     if bits not in (8, 16, 24, 32):
-        raise FormatError(f"DDS sin comprimir con {bits} bits por píxel, no soportado")
+        raise FormatError(t("error.dds_bits", bits=bits))
     luminance = bool(pf_flags & _PF_LUMINANCE) or not (pf_flags & _PF_RGB)
     alpha_only = bool(pf_flags & _PF_ALPHA) and not (pf_flags & (_PF_RGB | _PF_LUMINANCE))
     if alpha_only:
@@ -139,13 +152,12 @@ def parse_header(data: bytes) -> DdsHeader:
         # un rectángulo vacío.
         red = green = blue = alpha
         luminance = True
-    label = f"{'Luminancia' if luminance else 'RGB'} {bits} bits"
     return DdsHeader(
         width,
         height,
         mipmaps,
         "RAW",
-        label,
+        "",
         bits=bits,
         masks=(red, green, blue, alpha),
         has_alpha=bool(alpha) and bool(pf_flags & (_PF_ALPHAPIXELS | _PF_ALPHA)) and not alpha_only,
@@ -200,9 +212,7 @@ def decode(data: bytes, *, max_side: int | None = None) -> DecodedImage:
     offset, level, width, height = select_level(header, max_side, len(data))
     needed = offset + level_bytes(header, width, height)
     if len(data) < needed:
-        raise FormatError(
-            f"El DDS está truncado: hacen falta {needed} bytes y hay {len(data)}"
-        )
+        raise FormatError(t("error.dds_truncated", needed=needed, available=len(data)))
 
     step = 1
     if max_side is not None and header.kind not in ("BC4", "BC5"):
@@ -478,7 +488,7 @@ def to_png(image: DecodedImage, *, mode: str = "color") -> bytes:
     width, height = image.width, image.height
     if mode == "alpha":
         if image.alpha is None:
-            raise FormatError("La textura no tiene canal alfa")
+            raise FormatError(t("error.dds_no_alpha"))
         return _png(image.alpha, width, height, colour_type=0, sample_size=1)
     if mode == "color" and image.alpha is not None:
         pixels = bytearray(width * height * 4)

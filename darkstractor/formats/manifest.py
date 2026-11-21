@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 
 from ..binary import BinaryReader
 from ..errors import FormatError
+from ..i18n import t
 from ..models import Entry
 
 
@@ -20,9 +21,10 @@ class ManifestAsset:
     size: int = 0
 
 
-def _safe_count(value: int, label: str, maximum: int = 2_000_000) -> int:
+def _safe_count(value: int, message: str, maximum: int = 2_000_000) -> int:
+    """Frena un contador corrupto; ``message`` es la clave del error que se lanza."""
     if value > maximum:
-        raise FormatError(f"Cantidad inválida de {label}: {value}")
+        raise FormatError(t(message, value=value))
     return value
 
 
@@ -32,25 +34,25 @@ def parse_manifest(manifest_path: Path, media_dir: Path | None = None) -> list[E
         reader = BinaryReader(file, label=str(manifest_path))
         version = reader.u32()
         if not 1 <= version <= 0x100:
-            raise FormatError(f"Versión de manifiesto no reconocida: {version}")
+            raise FormatError(t("error.manifest_version", version=version))
 
         for _ in range(10):
             reader.u32()
 
         paths: list[str] = []
-        path_count = _safe_count(reader.u32(), "rutas")
+        path_count = _safe_count(reader.u32(), "error.manifest_paths")
         reader.u32()  # contador auxiliar
         for _ in range(path_count):
             reader.u64()  # hash
             paths.append(reader.sized_string(4))
 
         packs: list[str] = []
-        pack_count = _safe_count(reader.u32(), "paquetes", 256)
+        pack_count = _safe_count(reader.u32(), "error.manifest_packs", 256)
         for _ in range(pack_count):
             reader.u8()  # bandera
             packs.append(reader.sized_string(2))
 
-        asset_count = _safe_count(reader.u32(), "recursos")
+        asset_count = _safe_count(reader.u32(), "error.manifest_assets")
         assets: list[ManifestAsset] = []
         for _ in range(asset_count):
             filename = reader.sized_string(1)
@@ -69,7 +71,7 @@ def parse_manifest(manifest_path: Path, media_dir: Path | None = None) -> list[E
             if pack_index == 0xFF:
                 continue
             if pack_index >= len(packs) or path_index >= len(paths):
-                raise FormatError("El manifiesto contiene un índice fuera de rango")
+                raise FormatError(t("error.manifest_index"))
             pack = packs[pack_index]
             parts = [pack, paths[path_index].replace("\\", "/"), filename]
             relative = str(PurePosixPath(*(part for part in parts if part))) + "."
@@ -89,7 +91,7 @@ def parse_manifest(manifest_path: Path, media_dir: Path | None = None) -> list[E
         for index, asset in enumerate(ordered):
             next_offset = ordered[index + 1].offset if index + 1 < len(ordered) else pack_size
             if not 0 <= asset.offset <= next_offset <= pack_size:
-                raise FormatError(f"Offsets inválidos para {pack_path.name}")
+                raise FormatError(t("error.manifest_offsets", name=pack_path.name))
             asset.size = next_offset - asset.offset
             entries.append(
                 Entry(

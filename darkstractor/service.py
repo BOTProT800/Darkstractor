@@ -25,6 +25,7 @@ from .formats.zlib_stream import (
     extract_stream,
     find_next_stream,
 )
+from .i18n import t
 from .models import Archive, Entry
 
 #: Recibe bytes leídos del origen, nunca bytes ya descomprimidos: así el
@@ -37,22 +38,28 @@ RESERVED_WINDOWS = {
     "CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))
 }
 
+#: Extensión e identificador de cada tipo de miembro OBP. El identificador
+#: acaba en `Entry.kind` (``obp-model``…) y no depende del idioma: lo que se ve
+#: en pantalla sale de `kind_label`.
 OBP_TYPE_INFO: dict[int, tuple[str, str]] = {
     0: (".bod", "bod"),
     1: (".o3d", "o3d"),
-    2: (".2", "modelo"),
-    3: (".3", "iluminación"),
-    4: (".4", "colisión"),
+    2: (".2", "model"),
+    3: (".3", "lighting"),
+    4: (".4", "collision"),
     5: (".bmat", "bmat"),
     6: (".dds", "dds"),
-    7: (".tfnt", "fuente"),
-    8: (".anm", "animación"),
+    7: (".tfnt", "font"),
+    8: (".anm", "animation"),
     9: (".bnk", "bnk"),
     11: (".smf", "smf"),
     12: (".gfx", "gfx"),
     15: (".sam", "sam"),
-    20: (".loc", "localización"),
+    20: (".loc", "localization"),
 }
+
+#: Identificador de los tipos que no están en la tabla.
+UNKNOWN_TYPE = re.compile(r"type-(\d+)")
 
 
 #: Tope para cargar un recurso en memoria. La textura más grande del juego no
@@ -88,13 +95,13 @@ def safe_relative_path(name: str) -> Path:
         if raw in ("", "."):
             continue
         if raw == ".." or PurePosixPath(raw).is_absolute():
-            raise FormatError(f"Ruta insegura en el archivo: {name}")
+            raise FormatError(t("error.unsafe_path", name=name))
         cleaned = INVALID_WINDOWS.sub("_", raw).rstrip(" .") or "sin_nombre"
         if cleaned.upper().split(".", 1)[0] in RESERVED_WINDOWS:
             cleaned = "_" + cleaned
         parts.append(cleaned)
     if not parts:
-        raise FormatError("Nombre de salida vacío")
+        raise FormatError(t("error.empty_output_name"))
     return Path(*parts)
 
 
@@ -104,7 +111,7 @@ def destination_for(output: Path, name: str, policy: str = "rename") -> Path | N
     try:
         destination.relative_to(root)
     except ValueError as exc:
-        raise FormatError(f"Ruta de salida insegura: {name}") from exc
+        raise FormatError(t("error.unsafe_output_path", name=name)) from exc
     if not destination.exists():
         return destination
     if policy == "overwrite":
@@ -116,16 +123,31 @@ def destination_for(output: Path, name: str, policy: str = "rename") -> Path | N
         candidate = destination.with_name(f"{stem}_{index}{suffix}")
         if not candidate.exists():
             return candidate
-    raise DarkstractorError(f"No se pudo resolver el nombre duplicado: {destination.name}")
+    raise DarkstractorError(t("error.duplicate_name", name=destination.name))
 
 
 def obp_member_extension(type_id: int) -> tuple[str, str]:
-    return OBP_TYPE_INFO.get(type_id, (f".{type_id}", f"tipo {type_id}"))
+    return OBP_TYPE_INFO.get(type_id, (f".{type_id}", f"type-{type_id}"))
+
+
+def kind_label(kind: str) -> str:
+    """Nombre del tipo de una entrada tal como se enseña, en el idioma activo.
+
+    Solo se traducen los tipos OBP que tienen clave ``kind.<id>``; los nombres
+    de formato (DDS, BMAT…) y los tipos de contenedor se enseñan tal cual.
+    """
+    identifier = kind.removeprefix("obp-")
+    unknown = UNKNOWN_TYPE.fullmatch(identifier)
+    if unknown:
+        return t("kind.unknown", number=unknown.group(1))
+    key = f"kind.{identifier}"
+    label = t(key)
+    return identifier if label == key else label
 
 
 def list_obp_members(entry: Entry) -> list[Entry]:
     if entry.kind != "upak-segment":
-        raise DarkstractorError("La entrada seleccionada no es un paquete OBP")
+        raise DarkstractorError(t("error.not_obp"))
     archive = parse_deathinitive_obp(entry.source, base=entry.offset, size=entry.size)
     base_name = entry.name[:-1] if entry.name.endswith(".") else entry.name
     # En la variante por chunks cada miembro se lee por separado, así que su
@@ -175,14 +197,14 @@ def read_member_bytes(
     """
     if entry.size > limit:
         raise DarkstractorError(
-            f"{entry.name} ocupa {human_size(entry.size)} y no se carga en memoria"
+            t("error.too_large", name=entry.name, size=human_size(entry.size))
         )
     if not entry.kind.startswith("obp-"):
         with entry.source.open("rb") as file:
             file.seek(entry.offset)
             data = file.read(entry.size)
         if len(data) != entry.size:
-            raise FormatError(f"Lectura incompleta de {entry.source.name}")
+            raise FormatError(t("error.short_read", name=entry.source.name))
         return data
 
     base = int(entry.metadata["obp_base"])
@@ -190,21 +212,21 @@ def read_member_bytes(
     index = int(entry.metadata["member_index"])
     archive = parse_deathinitive_obp(entry.source, base=base, size=segment_size)
     if not 0 <= index < len(archive.members):
-        raise FormatError(f"El paquete ya no contiene el miembro {index}")
+        raise FormatError(t("error.member_missing", index=index))
     member = archive.members[index]
 
     data = bytearray()
     with entry.source.open("rb") as file:
         if archive.variant == VARIANT_CHUNK_PER_MEMBER:
             if member.chunk_offset is None:
-                raise FormatError(f"El miembro {member.name} no tiene chunk propio")
+                raise FormatError(t("error.member_without_chunk", name=member.name))
             edges = [item.chunk_offset or 0 for item in archive.members] + [segment_size]
             file.seek(base + member.chunk_offset + 4)
             remaining = edges[index + 1] - member.chunk_offset - 4
             decoder = zlib.decompressobj()
             while remaining > 0 and not decoder.eof and len(data) < member.size:
                 if cancel and cancel.is_set():
-                    raise CancelledError("Lectura cancelada")
+                    raise CancelledError(t("error.read_cancelled"))
                 packed = file.read(min(1024 * 1024, remaining))
                 if not packed:
                     break
@@ -218,7 +240,7 @@ def read_member_bytes(
             end = member.offset + member.size
             while remaining > 0 and not decoder.eof and position < end:
                 if cancel and cancel.is_set():
-                    raise CancelledError("Lectura cancelada")
+                    raise CancelledError(t("error.read_cancelled"))
                 packed = file.read(min(1024 * 1024, remaining))
                 if not packed:
                     break
@@ -234,7 +256,7 @@ def read_member_bytes(
 
     if len(data) != member.size:
         raise FormatError(
-            f"{member.name} dio {len(data)} bytes y su tabla declaraba {member.size}"
+            t("error.member_size", name=member.name, got=len(data), expected=member.size)
         )
     return bytes(data)
 
@@ -243,15 +265,15 @@ def scan_game(game_root: Path) -> list[Archive]:
     media = game_root / "media"
     manifest = game_root / MANIFEST_RELATIVE
     if not manifest.is_file():
-        raise DarkstractorError(f"No se encontró media\\manifest.bin en {game_root}")
+        raise DarkstractorError(t("error.manifest_missing", path=game_root))
     if not (game_root / EXECUTABLE_NAME).is_file():
-        raise DarkstractorError("La carpeta no parece una instalación de Darksiders II Deathinitive Edition")
+        raise DarkstractorError(t("error.not_game"))
 
     archives: list[Archive] = []
     manifest_entries = parse_manifest(manifest, media)
     for pack_path in sorted({entry.source for entry in manifest_entries}, key=lambda item: item.name):
         entries = [entry for entry in manifest_entries if entry.source == pack_path]
-        archives.append(Archive(pack_path.name, pack_path, "upak", entries, "Recursos nombrados por manifest.bin"))
+        archives.append(Archive(pack_path.name, pack_path, "upak", entries, "note.manifest"))
 
     anim = media / "anim_streams.upak"
     if anim.is_file():
@@ -261,7 +283,7 @@ def scan_game(game_root: Path) -> list[Archive]:
                 anim,
                 "zlib",
                 [Entry("anim_streams/todos_los_streams_zlib", 0, anim.stat().st_size, anim, "zlib-all")],
-                "Sin TOC: recuperación secuencial de streams zlib",
+                "note.anim_streams",
             )
         )
 
@@ -271,12 +293,12 @@ def scan_game(game_root: Path) -> list[Archive]:
         if item.is_file():
             videos.append(Entry(f"video/{item.name}", 0, item.stat().st_size, item, item.suffix.lower().lstrip(".")))
     if videos:
-        archives.append(Archive("video", video_dir, "loose", videos, "Vídeos Bink y subtítulos"))
+        archives.append(Archive("video", video_dir, "loose", videos, "note.video"))
 
     for pattern in ("scripts.obsp", "world*.bin"):
         for item in sorted(media.glob(pattern)):
             entry = Entry(item.name, 0, item.stat().st_size, item, item.suffix.lower().lstrip("."))
-            archives.append(Archive(item.name, item, "loose", [entry], "Archivo suelto de media (copia sin conversión)"))
+            archives.append(Archive(item.name, item, "loose", [entry], "note.loose"))
     return archives
 
 
@@ -295,10 +317,10 @@ def _copy_range(
             source.seek(entry.offset)
             while remaining:
                 if cancel and cancel.is_set():
-                    raise CancelledError("Extracción cancelada")
+                    raise CancelledError(t("error.extraction_cancelled"))
                 block = source.read(min(1024 * 1024, remaining))
                 if not block:
-                    raise FormatError(f"Lectura incompleta de {entry.source.name}")
+                    raise FormatError(t("error.short_read", name=entry.source.name))
                 target.write(block)
                 remaining -= len(block)
                 if progress:
@@ -320,7 +342,7 @@ def _unique_reserved(destination: Path, reserved: set[Path]) -> Path:
         if candidate not in reserved and not candidate.exists():
             reserved.add(candidate)
             return candidate
-    raise DarkstractorError(f"No se pudo resolver el nombre duplicado: {destination.name}")
+    raise DarkstractorError(t("error.duplicate_name", name=destination.name))
 
 
 def _convert_zgfx(raw_path: Path, destination: Path, cancel: Event | None) -> None:
@@ -333,7 +355,7 @@ def _convert_zgfx(raw_path: Path, destination: Path, cancel: Event | None) -> No
             with converted.open("wb") as target:
                 while True:
                     if cancel and cancel.is_set():
-                        raise CancelledError("Extracción cancelada")
+                        raise CancelledError(t("error.extraction_cancelled"))
                     block = source.read(1024 * 1024)
                     if not block:
                         break
@@ -347,7 +369,7 @@ def _convert_zgfx(raw_path: Path, destination: Path, cancel: Event | None) -> No
                 os.fsync(target.fileno())
             if not decoder.eof or written != declared:
                 raise FormatError(
-                    f"ZGFX incompleto: {written} bytes descomprimidos, se esperaban {declared}"
+                    t("error.zgfx_incomplete", written=written, declared=declared)
                 )
         os.replace(converted, destination)
     except Exception:
@@ -365,7 +387,7 @@ def _split_bank(bank: Path, cancel: Event | None, log: Log) -> list[Path]:
     try:
         media = parse_bank_media(bank)
     except FormatError as error:
-        log(f"No se pudo leer el banco {bank.name}: {error}")
+        log(t("log.bank_unreadable", name=bank.name, error=error))
         return []
     if not media:
         return []
@@ -375,7 +397,7 @@ def _split_bank(bank: Path, cancel: Event | None, log: Log) -> list[Path]:
     with bank.open("rb") as source:
         for item in media:
             if cancel and cancel.is_set():
-                raise CancelledError("Extracción cancelada")
+                raise CancelledError(t("error.extraction_cancelled"))
             destination = folder / f"{item.file_id}.wem"
             destination.parent.mkdir(parents=True, exist_ok=True)
             temporary = destination.with_name(destination.name + ".partial")
@@ -386,7 +408,7 @@ def _split_bank(bank: Path, cancel: Event | None, log: Log) -> list[Path]:
                     while remaining:
                         block = source.read(min(1024 * 1024, remaining))
                         if not block:
-                            raise FormatError(f"El banco {bank.name} está truncado")
+                            raise FormatError(t("error.bank_truncated", name=bank.name))
                         target.write(block)
                         remaining -= len(block)
                     target.flush()
@@ -396,7 +418,7 @@ def _split_bank(bank: Path, cancel: Event | None, log: Log) -> list[Path]:
                 temporary.unlink(missing_ok=True)
                 raise
             produced.append(destination)
-    log(f"Banco {bank.name}: {len(produced)} .wem separados en {folder.name}")
+    log(t("log.bank_split", name=bank.name, count=len(produced), folder=folder.name))
     return produced
 
 
@@ -422,7 +444,7 @@ def _extract_chunked_members(
         for index in sorted(destinations):
             member = archive.members[index]
             if member.chunk_offset is None:
-                raise FormatError(f"El miembro {member.name} no tiene chunk propio")
+                raise FormatError(t("error.member_without_chunk", name=member.name))
             destination = destinations[index]
             destination.parent.mkdir(parents=True, exist_ok=True)
             temporary = destination.with_name(
@@ -436,7 +458,7 @@ def _extract_chunked_members(
                 with temporary.open("wb") as target:
                     while remaining > 0 and not decoder.eof:
                         if cancel and cancel.is_set():
-                            raise CancelledError("Extracción cancelada")
+                            raise CancelledError(t("error.extraction_cancelled"))
                         packed = file.read(min(1024 * 1024, remaining))
                         if not packed:
                             break
@@ -453,7 +475,7 @@ def _extract_chunked_members(
                     os.fsync(target.fileno())
                 if written != member.size:
                     raise FormatError(
-                        f"El chunk de {member.name} dio {written} bytes y declaraba {member.size}"
+                        t("error.chunk_size", name=member.name, got=written, expected=member.size)
                     )
                 if member.type_id == 12:
                     _convert_zgfx(temporary, destination, cancel)
@@ -463,7 +485,7 @@ def _extract_chunked_members(
                 temporary.unlink(missing_ok=True)
                 raise
             completed.append(destination)
-            log(f"Extraído: {destination.name} ({human_size(destination.stat().st_size)})")
+            log(t("log.extracted_size", name=destination.name, size=human_size(destination.stat().st_size)))
             if member.type_id == 9:
                 completed.extend(_split_bank(destination, cancel, log))
     return completed
@@ -487,7 +509,7 @@ def _extract_obp_member_entries(
     selected: dict[int, Entry] = {}
     for entry in entries:
         if entry.source != first.source or int(entry.metadata["obp_base"]) != base:
-            raise DarkstractorError("Se mezclaron miembros de paquetes OBP diferentes")
+            raise DarkstractorError(t("error.mixed_obp"))
         selected[int(entry.metadata["member_index"])] = entry
 
     reserved: set[Path] = set()
@@ -495,7 +517,7 @@ def _extract_obp_member_entries(
     for index, entry in selected.items():
         destination = destination_for(output, entry.name, policy)
         if destination is None:
-            log(f"Omitido (ya existe): {entry.name}")
+            log(t("log.skipped_exists", name=entry.name))
             continue
         if policy == "rename":
             destination = _unique_reserved(destination, reserved)
@@ -536,7 +558,13 @@ def _extract_obp_member_entries(
         else:
             os.replace(current_temp, current_destination)
         completed.append(current_destination)
-        log(f"Extraído: {current_destination.name} ({human_size(current_destination.stat().st_size)})")
+        log(
+            t(
+                "log.extracted_size",
+                name=current_destination.name,
+                size=human_size(current_destination.stat().st_size),
+            )
+        )
         if member.type_id == 9:
             completed.extend(_split_bank(current_destination, cancel, log))
         current_target = None
@@ -550,7 +578,7 @@ def _extract_obp_member_entries(
             remaining = archive.compressed_size
             while remaining and not decoder.eof:
                 if cancel and cancel.is_set():
-                    raise CancelledError("Extracción cancelada")
+                    raise CancelledError(t("error.extraction_cancelled"))
                 packed = source.read(min(1024 * 1024, remaining))
                 if not packed:
                     break
@@ -566,7 +594,7 @@ def _extract_obp_member_entries(
                         finish_current()
                         current_index += 1
                     if current_index >= len(archive.members):
-                        raise FormatError("El payload OBP contiene más datos que su tabla")
+                        raise FormatError(t("error.obp_payload_excess"))
                     member = archive.members[current_index]
                     member_end = member.offset + member.size
                     take = min(len(data) - data_offset, member_end - unpacked_position)
@@ -590,7 +618,7 @@ def _extract_obp_member_entries(
                 data_offset = 0
                 while data_offset < len(tail):
                     if current_index >= len(archive.members):
-                        raise FormatError("El payload OBP contiene datos adicionales")
+                        raise FormatError(t("error.obp_payload_extra"))
                     member = archive.members[current_index]
                     member_end = member.offset + member.size
                     take = min(len(tail) - data_offset, member_end - unpacked_position)
@@ -610,7 +638,7 @@ def _extract_obp_member_entries(
                         current_index += 1
         if not decoder.eof or unpacked_position != archive.unpacked_size:
             raise FormatError(
-                f"Payload OBP incompleto: {unpacked_position} / {archive.unpacked_size} bytes"
+                t("error.obp_payload_incomplete", done=unpacked_position, total=archive.unpacked_size)
             )
         return completed
     except Exception:
@@ -636,9 +664,9 @@ def _extract_upak_segment(
         try:
             members = list_obp_members(entry)
         except FormatError as error:
-            log(f"Sin tabla interna utilizable ({error}); recuperando el BOD completo")
+            log(t("log.no_table", error=error))
         else:
-            log(f"Tabla Deathinitive: {len(members)} recursos internos")
+            log(t("log.deathinitive_table", count=len(members)))
             return _extract_obp_member_entries(
                 members,
                 output,
@@ -661,7 +689,7 @@ def _extract_upak_segment(
             extension = extension_for_magic(magic)
             destination = destination_for(output, base_name + extension, policy)
             if destination is None:
-                log(f"Omitido (ya existe): {base_name + extension}")
+                log(t("log.skipped_exists", name=base_name + extension))
                 return []
             expected = declared_size_before(entry.source, candidate, entry.offset)
             stream = extract_stream(
@@ -673,14 +701,14 @@ def _extract_upak_segment(
                 cancel=cancel,
                 progress=progress,
             )
-            log(f"Extraído {destination.name}: {human_size(stream.unpacked_size)}")
+            log(t("log.extracted_stream", name=destination.name, size=human_size(stream.unpacked_size)))
             return [destination]
     destination = destination_for(output, base_name + ".obp", policy)
     if destination is None:
-        log(f"Omitido (ya existe): {base_name}.obp")
+        log(t("log.skipped_exists", name=f"{base_name}.obp"))
         return []
     _copy_range(entry, destination, cancel=cancel, progress=progress)
-    log(f"Extraído sin descomprimir: {destination.name}")
+    log(t("log.extracted_raw", name=destination.name))
     return [destination]
 
 
@@ -699,7 +727,7 @@ def recover_all_zlib(
     index = 0
     while cursor < end:
         if cancel and cancel.is_set():
-            raise CancelledError("Extracción cancelada")
+            raise CancelledError(t("error.extraction_cancelled"))
         candidate = find_next_stream(entry.source, cursor, end)
         if candidate is None:
             break
@@ -733,11 +761,11 @@ def recover_all_zlib(
                 final = destination_for(output, str(final.relative_to(output)), policy) or destination
             os.replace(destination, final)
         results.append(final)
-        log(f"Stream {index + 1}: 0x{candidate:x}, {human_size(stream.unpacked_size)}")
+        log(t("log.stream", index=index + 1, offset=candidate, size=human_size(stream.unpacked_size)))
         cursor = candidate + max(stream.compressed_size, 2)
         index += 1
     if not results:
-        raise FormatError("No se encontraron streams zlib válidos")
+        raise FormatError(t("error.no_zlib_streams"))
     return results
 
 
@@ -758,13 +786,13 @@ def extract_entries(
     processed_obp_groups: set[tuple[Path, int]] = set()
     for entry in entries:
         if cancel and cancel.is_set():
-            raise CancelledError("Extracción cancelada")
+            raise CancelledError(t("error.extraction_cancelled"))
         if entry.kind.startswith("obp-"):
             key = (entry.source, int(entry.metadata["obp_base"]))
             if key in processed_obp_groups:
                 continue
             processed_obp_groups.add(key)
-            log(f"Procesando recursos internos de {entry.metadata['obp_outer_name']}")
+            log(t("log.processing_internal", name=entry.metadata["obp_outer_name"]))
             group = [
                 candidate
                 for candidate in entries
@@ -778,7 +806,7 @@ def extract_entries(
                 )
             )
         elif entry.kind == "upak-segment":
-            log(f"Procesando {entry.name}")
+            log(t("log.processing", name=entry.name))
             results.extend(
                 _extract_upak_segment(
                     entry, output, auto_unpack=auto_unpack, policy=policy,
@@ -786,19 +814,19 @@ def extract_entries(
                 )
             )
         elif entry.kind == "zlib-all":
-            log(f"Procesando {entry.name}")
+            log(t("log.processing", name=entry.name))
             results.extend(
                 recover_all_zlib(entry, output, policy=policy, cancel=cancel, progress=progress, log=log)
             )
         else:
-            log(f"Procesando {entry.name}")
+            log(t("log.processing", name=entry.name))
             destination = destination_for(output, entry.name, policy)
             if destination is None:
-                log(f"Omitido (ya existe): {entry.name}")
+                log(t("log.skipped_exists", name=entry.name))
                 continue
             _copy_range(entry, destination, cancel=cancel, progress=progress)
             results.append(destination)
-            log(f"Extraído: {entry.name}")
+            log(t("log.extracted", name=entry.name))
     return results
 
 
@@ -845,5 +873,5 @@ def ensure_free_space(output: Path, required: int) -> None:
     free = shutil.disk_usage(probe).free
     if free < required:
         raise DarkstractorError(
-            f"Espacio insuficiente: se estiman {human_size(required)} y hay {human_size(free)} libres"
+            t("error.not_enough_space", required=human_size(required), free=human_size(free))
         )

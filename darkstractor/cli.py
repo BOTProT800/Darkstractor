@@ -9,53 +9,73 @@ from pathlib import Path
 from . import __version__
 from .errors import DarkstractorError
 from .gui import DEFAULT_GAME
+from .i18n import SUPPORTED_LANGUAGES, get_language, resolve_language, set_language, t
+from .settings import load_settings
 from .service import (
     ensure_free_space,
     estimate_output_bytes,
     extract_entries,
     human_size,
+    kind_label,
     list_obp_members,
     scan_game,
 )
 
 
+def initial_language(argv: list[str] | None = None) -> str:
+    """Idioma con el que se construye la CLI: ``--lang``, lo guardado o inglés.
+
+    argparse fija los textos de ayuda al construir el parser, así que ``--lang``
+    hay que leerlo antes, con un parser mínimo que no valida nada: un valor
+    inválido lo rechaza después el parser de verdad, con su mensaje de error.
+    """
+    early = argparse.ArgumentParser(add_help=False)
+    early.add_argument("--lang", nargs="?")
+    known, _rest = early.parse_known_args(argv)
+    if known.lang in SUPPORTED_LANGUAGES:
+        return known.lang
+    return resolve_language(load_settings().get("language"))
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="darkstractor", description="Extractor de Darksiders II Deathinitive Edition")
+    parser = argparse.ArgumentParser(prog="darkstractor", description=t("cli.description"))
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--lang", choices=tuple(SUPPORTED_LANGUAGES), help=t("cli.lang_help"))
     subparsers = parser.add_subparsers(dest="command")
 
-    scan = subparsers.add_parser("scan", help="mostrar el inventario")
+    scan = subparsers.add_parser("scan", help=t("cli.scan_help"))
     scan.add_argument("--game", type=Path, default=DEFAULT_GAME)
 
-    members = subparsers.add_parser("members", help="mostrar el contenido interno de paquetes OBP")
+    members = subparsers.add_parser("members", help=t("cli.members_help"))
     members.add_argument("--game", type=Path, default=DEFAULT_GAME)
     members.add_argument("--archive", default="media.upak")
-    members.add_argument("--filter", required=True, help="texto contenido en el nombre del paquete")
+    members.add_argument("--filter", required=True, help=t("cli.members_filter_help"))
 
-    extract = subparsers.add_parser("extract", help="extraer recursos")
+    extract = subparsers.add_parser("extract", help=t("cli.extract_help"))
     extract.add_argument("--game", type=Path, default=DEFAULT_GAME)
     extract.add_argument("--output", type=Path, required=True)
-    extract.add_argument("--archive", help="nombre del contenedor, por ejemplo media.upak")
-    extract.add_argument("--filter", default="", help="texto contenido en la ruta")
-    extract.add_argument("--inner-filter", help="extraer solo miembros internos que contengan este texto")
-    extract.add_argument("--raw", action="store_true", help="no descomprimir los segmentos OBP")
+    extract.add_argument("--archive", help=t("cli.archive_help"))
+    extract.add_argument("--filter", default="", help=t("cli.filter_help"))
+    extract.add_argument("--inner-filter", help=t("cli.inner_filter_help"))
+    extract.add_argument("--raw", action="store_true", help=t("cli.raw_help"))
     extract.add_argument("--overwrite", action="store_true")
     extract.add_argument(
         "--skip-space-check",
         action="store_true",
-        help="extraer sin comprobar el espacio libre (la reserva es pesimista)",
+        help=t("cli.skip_space_help"),
     )
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    set_language(initial_language(argv))
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         from .gui import main as gui_main
 
-        gui_main()
+        gui_main(get_language())
         return 0
     try:
         archives = scan_game(args.game)
@@ -76,9 +96,9 @@ def main(argv: list[str] | None = None) -> int:
                     found = True
                     print(f"[{entry.name}]")
                     for member in list_obp_members(entry):
-                        print(f"{member.kind.removeprefix('obp-'):16} {human_size(member.size):>10}  {member.name}")
+                        print(f"{kind_label(member.kind):16} {human_size(member.size):>10}  {member.name}")
             if not found:
-                parser.error("ningún paquete coincide con los filtros")
+                parser.error(t("cli.no_package"))
             return 0
 
         selected = []
@@ -87,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             selected.extend(entry for entry in archive.entries if args.filter.casefold() in entry.name.casefold())
         if not selected:
-            parser.error("ninguna entrada coincide con los filtros")
+            parser.error(t("cli.no_entry"))
         if args.inner_filter:
             inner = []
             for entry in selected:
@@ -104,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             selected = inner
             if not selected:
-                parser.error("ningún recurso interno coincide con --inner-filter")
+                parser.error(t("cli.no_inner"))
         if not args.skip_space_check:
             try:
                 ensure_free_space(
@@ -114,9 +134,7 @@ def main(argv: list[str] | None = None) -> int:
                 # La reserva multiplica por 3 lo empaquetado porque zlib puede
                 # expandirse mucho. Es deliberadamente pesimista, así que tiene
                 # que poder ignorarse en vez de bloquear una extracción viable.
-                raise DarkstractorError(
-                    f"{exc}. Añade --skip-space-check para extraer de todas formas"
-                ) from exc
+                raise DarkstractorError(t("cli.space_hint", error=exc)) from exc
         results = extract_entries(
             selected,
             args.output,
@@ -124,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             policy="overwrite" if args.overwrite else "rename",
             log=print,
         )
-        print(f"Completado: {len(results)} archivos")
+        print(t("cli.done", count=len(results)))
         return 0
     except DarkstractorError as exc:
         parser.exit(2, f"error: {exc}\n")

@@ -24,5 +24,7 @@ class Archive:
     path: Path
     kind: str
     entries: list[Entry] = field(default_factory=list)
+    #: Clave del catálogo de textos, no el texto: se traduce al enseñarla para
+    #: que cambiar de idioma tras analizar no la deje en el idioma anterior.
     note: str = ""
 

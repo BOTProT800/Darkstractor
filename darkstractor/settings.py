@@ -9,10 +9,30 @@ import json
 import os
 from pathlib import Path
 
+from .i18n import resolve_language
+
 #: Solo se conserva lo que el usuario elige a mano. Cualquier otra clave del
 #: archivo se descarta al leer, para que una versión anterior o un fichero
 #: manipulado no inyecten estado en la aplicación.
-KNOWN_KEYS = frozenset({"game", "output", "auto_unpack", "collision"})
+KNOWN_KEYS = frozenset({"game", "output", "auto_unpack", "collision", "language"})
+
+#: Políticas de duplicados, en el orden en que las ofrece la interfaz.
+COLLISION_POLICIES = ("rename", "skip", "overwrite")
+DEFAULT_COLLISION = "rename"
+
+#: Lo que guardaban las versiones anteriores: la etiqueta española del
+#: desplegable en lugar de la política. Se acepta al leer y se convierte.
+LEGACY_COLLISION_LABELS = {"Renombrar": "rename", "Omitir": "skip", "Sobrescribir": "overwrite"}
+
+
+def resolve_collision(value: object) -> str:
+    """Normaliza la política de duplicados guardada; lo desconocido pasa a renombrar."""
+    if isinstance(value, str):
+        if value in COLLISION_POLICIES:
+            return value
+        if value in LEGACY_COLLISION_LABELS:
+            return LEGACY_COLLISION_LABELS[value]
+    return DEFAULT_COLLISION
 
 
 def config_path() -> Path:
@@ -33,7 +53,14 @@ def load_settings(path: Path | None = None) -> dict[str, object]:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: value for key, value in data.items() if key in KNOWN_KEYS}
+    values = {key: value for key, value in data.items() if key in KNOWN_KEYS}
+    # Los valores con vocabulario cerrado salen ya normalizados: quien los lee
+    # no tiene que conocer los formatos antiguos ni defenderse de uno inválido.
+    if "collision" in values:
+        values["collision"] = resolve_collision(values["collision"])
+    if "language" in values:
+        values["language"] = resolve_language(values["language"])
+    return values
 
 
 def save_settings(values: dict[str, object], path: Path | None = None) -> None:

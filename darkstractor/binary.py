@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .errors import FormatError
+from .i18n import t
 
 
 class BinaryReader:
@@ -21,12 +22,12 @@ class BinaryReader:
         base: int = 0,
         size: int | None = None,
         endian: str = "<",
-        label: str = "archivo",
+        label: str | None = None,
     ) -> None:
         self.file = file
         self.base = base
         self.endian = endian
-        self.label = label
+        self.label = label if label is not None else t("binary.default_label")
         if size is None:
             current = file.tell()
             file.seek(0, os.SEEK_END)
@@ -34,7 +35,7 @@ class BinaryReader:
             file.seek(current)
         self.size = size
         if base < 0 or size < 0:
-            raise FormatError(f"Rango inválido en {label}")
+            raise FormatError(t("error.binary_range", label=self.label))
         file.seek(base)
 
     def tell(self) -> int:
@@ -48,20 +49,20 @@ class BinaryReader:
         elif whence == os.SEEK_END:
             target = self.size + offset
         else:
-            raise ValueError("whence inválido")
+            raise ValueError(t("error.binary_whence"))
         if not 0 <= target <= self.size:
             raise FormatError(
-                f"Offset fuera de rango en {self.label}: 0x{target:x} / 0x{self.size:x}"
+                t("error.binary_offset", label=self.label, target=target, size=self.size)
             )
         self.file.seek(self.base + target)
         return target
 
     def read(self, count: int) -> bytes:
         if count < 0 or self.tell() + count > self.size:
-            raise FormatError(f"Lectura fuera de rango en {self.label}")
+            raise FormatError(t("error.binary_read_range", label=self.label))
         data = self.file.read(count)
         if len(data) != count:
-            raise FormatError(f"{self.label} está truncado")
+            raise FormatError(t("error.binary_truncated", label=self.label))
         return data
 
     def unpack(self, code: str) -> int:
@@ -87,9 +88,9 @@ class BinaryReader:
         elif length_bytes == 4:
             length = self.u32()
         else:
-            raise ValueError("longitud no soportada")
+            raise ValueError(t("error.binary_length_bytes"))
         if length > 1_000_000:
-            raise FormatError(f"Cadena sospechosamente grande en {self.label}: {length}")
+            raise FormatError(t("error.binary_string", label=self.label, length=length))
         return self.read(length).decode("utf-8", errors="replace")
 
 
